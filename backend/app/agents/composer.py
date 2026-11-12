@@ -140,3 +140,4 @@ class ComposerAgent:
             exported_midi_files=exported,
             stylistic_disclaimer=preset.stylistic_disclaimer if preset else CompositionBundle.stylistic_disclaimer,
         )
+

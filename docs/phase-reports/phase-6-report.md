@@ -65,3 +65,4 @@ Tüm Depo Testleri (Phase 1..6): 86 passed, 9 deselected in 3.62s (%100 Başarı
 | Çok bölümlü bir şarkı yapısı oluşturulabilir | ✅ | `ArrangerAgent` kesintisiz 48 barlık `Intro -> Build -> Drop -> Breakdown -> Outro` yapısını, pattern ve Playlist işaretçi eylemleriyle oluşturur |
 | Sample tarayıcısı yalnızca onaylı dizinlere saygı gösterir | ✅ | Onaylı liste dışı dizinler ve `..` geçişleri `PermissionError` ile engellenir |
 | Üretilen çıktı stilistik mükemmellik iddiası taşımaz | ✅ | Ön ayarlarda, `CompositionBundle` ve `SoundDesignPlan` çıktılarında açık sorumluluk reddi yer alır |
+

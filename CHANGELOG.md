@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 7 — Ses Dışa Aktarımı ve Analizi (Audio Rendering and Analysis) (2026-11-12)
+
+### Oluşturulan
+- `backend/app/integrations/audio/render_workflow.py`: `FLRenderWorkflow`, `RenderSettings` ve `RenderResult` — mevcut dosyanın üzerine yazmadan önce açık onay kapısı (`AWAITING_OVERWRITE_APPROVAL`), dışa aktarım diyaloğu ve ayar doğrulaması (`DIALOG_NOT_FOUND`), WAV bütünlük kontrolü (`VERIFICATION_FAILED` / `SUCCEEDED`).
+- `backend/app/integrations/audio/analyzer.py`: `AudioAnalyzer`, `MeasuredAudioFacts`, `HeuristicAudioObservations` ve `AudioAnalysisReport` — tekrarlanabilir deterministik sinyal analizi (`peak_dbfs`, `rms_dbfs`, `crest_factor_db`, dijital kırpılma tespiti, sessizlik oranı, Goertzel 3-bant spektral enerji analizi ve zarf otokorelasyonuyla tempo tahmini).
+- `backend/app/agents/critic.py`: `CriticAgent` ve `CriticFeedbackReport` — nesnel ölçümleri (`MEASURED_FACT`) ile öznel miksaj önerilerini (`subjective_recommendations`) ayıran ve tüm önemli revizyonları `requires_approval=True` (`AWAITING_APPROVAL`) ile kapılayan Critic rolü.
+- `backend/tests/fixtures/audio/`: Örnek render (`example_render.wav`) ve yapılandırılmış analiz raporu (`example_analysis_report.json`).
+- `backend/tests/test_phase7_audio.py`: 11 yeni render, analiz ve Critic testi; toplam 97 test %100 başarıyla geçti.
+- `docs/phase-reports/phase-7-report.md`: Phase 7 tamamlama raporu.
+
 ## Phase 6 — Müzik Prodüksiyon Motoru (Music Production Engine) (2026-11-12)
 
 ### Oluşturulan

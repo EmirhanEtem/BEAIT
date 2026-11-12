@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "measured_facts": {
+    "file_path": "C:\\Users\\emoca\\Desktop\\FlMcp\\backend\\tests\\fixtures\\audio\\example_render.wav",
+    "file_size_bytes": 352844,
+    "duration_seconds": 2.0,
+    "sample_rate": 44100,
+    "channels": 2,
+    "bit_depth": 16,
+    "total_frames": 88200,
+    "peak_linear": 0.67453,
+    "peak_dbfs": -3.42,
+    "rms_linear": 0.26746,
+    "rms_dbfs": -11.45,
+    "crest_factor_db": 8.03,
+    "clipped_samples": 0,
+    "clipping_ratio": 0.0,
+    "is_clipping": false,
+    "silence_ratio": 0.0,
+    "leading_silence_seconds": 0.0,
+    "trailing_silence_seconds": 0.0,
+    "is_mostly_silent": false,
+    "dc_offset": -0.0
+  },
+  "heuristic_observations": {
+    "low_band_energy_ratio": 0.5295,
+    "mid_band_energy_ratio": 0.4705,
+    "high_band_energy_ratio": 0.0,
+    "spectral_centroid_hz_est": 769.2,
+    "spectral_balance_summary": "Balanced multi-band spectral distribution across low, mid, and high bands.",
+    "estimated_tempo_bpm": 120.0,
+    "tempo_confidence_note": "Heuristic onset-envelope estimate only; not a ground-truth DAW clock.",
+    "caveat": "Spectral balance and tempo indicators are heuristic signal estimates, not objective professional mixing judgments."
+  },
+  "error": null
+}

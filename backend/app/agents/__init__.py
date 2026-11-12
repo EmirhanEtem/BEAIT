@@ -9,6 +9,7 @@ from .sound_designer import (
     MixerRecommendation,
 )
 from .arranger import ArrangerAgent, ArrangementPlan, ArrangementSection
+from .critic import CriticAgent, CriticFeedbackReport, CriticFinding
 
 __all__ = [
     "ComposerAgent",
@@ -23,4 +24,8 @@ __all__ = [
     "ArrangerAgent",
     "ArrangementPlan",
     "ArrangementSection",
+    "CriticAgent",
+    "CriticFeedbackReport",
+    "CriticFinding",
 ]
+
