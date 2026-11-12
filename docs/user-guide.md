@@ -50,3 +50,4 @@ Bu komut çalıştırıldığında asistan:
 - API anahtarları günlüklerde ve yapılandırma çıktılarında otomatik olarak maskelenir (`[REDACTED_SECRET]`).
 - Model sağlayıcısına hangi proje bağlamı alanlarının gönderildiği (`PromptDisclosureEnvelope.disclosed_fields`) şeffaf biçimde kaydedilir.
 - Yerel ses dosyaları, sample klasörleri ve proje dosyaları varsayılan olarak hiçbir bulut sağlayıcısına yüklenmez.
+

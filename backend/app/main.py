@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from .config import PrivacySafeLogExporter, SystemDiagnosticsService
 from .schemas import (
     AppSettings,
     ChatMessage,
@@ -27,6 +28,10 @@ logger = logging.getLogger("fl_assistant_backend")
 # Global singleton execution manager
 manager = TaskExecutionManager()
 app_settings = AppSettings()
+diagnostics_service = SystemDiagnosticsService(
+    fl_adapter=manager.fl_adapter,
+    hcu_adapter=manager.hcu_adapter,
+)
 
 
 @asynccontextmanager
@@ -169,4 +174,28 @@ async def update_settings(new_settings: AppSettings):
 async def capture_screen():
     res = await manager.hcu_adapter.async_capture_screenshot()
     return {"success": res.success, "width": res.width, "height": res.height, "error": res.error}
+
+
+# -- Diagnostics & Log Export Endpoints (Phase 9) ----------------------------
+
+@app.get("/api/diagnostics")
+async def get_diagnostics():
+    report = diagnostics_service.run_diagnostics(probe_live_fl=False)
+    return report.to_dict()
+
+
+class LogExportRequest(BaseModel):
+    output_path: str
+
+
+@app.post("/api/logs/export")
+async def export_logs(req: LogExportRequest):
+    report = diagnostics_service.run_diagnostics(probe_live_fl=False)
+    written_path = PrivacySafeLogExporter.export_sanitized_logs(
+        req.output_path,
+        diagnostics=report,
+        memory=manager.orchestrator.memory,
+    )
+    return {"exported": True, "path": written_path}
+
 

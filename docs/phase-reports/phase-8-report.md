@@ -82,3 +82,4 @@ Toplam Depo Testleri (Phase 1..8): 102 passed, 9 deselected in 6.93s (%100 Başa
 | Desteklenen işlemleri canlı yürütür ve her birini doğrular | ✅ | Gerçek FL Studio 2025 üzerinde 11/11 eylem (`SET_TEMPO`, `CREATE_PATTERN`, `ADD_ARRANGEMENT_MARKER`, `SET_STEP_GRID`) yürütüldü ve doğrulandı |
 | Mevcut projeyi güvenli şekilde korur | ✅ | `TestProjectSession` ile başlangıç anlık görüntüsü alındı ve test sonunda %100 geri yüklendi |
 | Render analizi ve tamamlanan/kalan adımların özetini sunar | ✅ | `CriticAgent` değerlendirmesi ve `remaining_limitations` özeti `TaskSummaryRecord` içine kaydedilir |
+

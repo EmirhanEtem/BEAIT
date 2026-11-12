@@ -91,3 +91,4 @@ class ProjectMemoryManager:
             ]
         except Exception:
             pass
+

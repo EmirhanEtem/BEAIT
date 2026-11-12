@@ -129,3 +129,4 @@ class ModelProviderAdapter:
             audio_or_project_files_attached=False,
             prompt_text="\n".join(lines),
         )
+

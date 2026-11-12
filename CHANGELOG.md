@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 9 — Sertleştirme, Paketleme ve Sürüm Adayı (Release Candidate) (2026-11-12)
+
+### Oluşturulan
+- `backend/app/config/diagnostics.py`: `SystemDiagnosticsService` (`GET /api/diagnostics`) ve `PrivacySafeLogExporter` (`POST /api/logs/export`) — sistem hazırlık kontrolleri, kurtarma talimatları, gizli anahtar hijyen taraması (`scan_config_files_for_secrets`), proje yedekleme rehberi ve API anahtarları / Windows kullanıcı dizinlerini maskeleyen gizlilik korumalı günlük dışa aktarımı.
+- `scripts/start_assistant.ps1`: İlk çalıştırma tanılaması, FastAPI sunucusu ve Tauri masaüstü uygulaması başlatıcı betiği.
+- `docs/troubleshooting.md`: Bağlantı kurtarma, loopMIDI/FL Studio MIDI ayarları, HCU pencere odağı ve proje yedekleme sorun giderme kılavuzu.
+- `docs/license-inventory.md`: Tüm harici, Python ve masaüstü bağımlılıklarının lisans envanteri.
+- `backend/tests/test_phase9_rc.py`: 6 yeni Sürüm Adayı (RC) testi (yeniden bağlanma, çevrimdışı dürüstlük, uygulama yeniden başlatma kalıcılığı, gizlilik korumalı hata/günlük dışa aktarımı); toplam 108 test %100 başarıyla geçti.
+- `docs/phase-reports/phase-9-report.md`: Phase 9 Sürüm Adayı (Release Candidate) tamamlama raporu.
+
 ## Phase 8 — Producer Orchestrator ve Uçtan Uca İş Akışı (End-to-End Workflow) (2026-11-12)
 
 ### Oluşturulan

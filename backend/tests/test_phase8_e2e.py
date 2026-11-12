@@ -191,3 +191,4 @@ class TestPhase8EndToEndWorkflow:
         plan = orchestrator.create_plan(PHASE8_BENCHMARK_PROMPT)
         assert len(plan.actions) == 4
         assert any("bounded limit of 4 actions" in lim for lim in plan.remaining_limitations)
+
