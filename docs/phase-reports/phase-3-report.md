@@ -80,8 +80,8 @@ tests/test_action_system.py::test_action_executor_successful_run PASSED
 tests/test_action_system.py::test_action_executor_cancellation PASSED
 tests/test_action_system.py::test_action_executor_timeout_and_retries PASSED
 
-Toplam: 15 passed in 0.58s
-Tüm Depo Testleri (Phase 1 + 2 + 3): 40 passed in 3.37s (%100 Başarı)
+Toplam Eylem Sistemi Testleri: 15 passed in 0.58s
+Tüm Depo Testleri (Phase 1 + 2 + 3): 48 passed, 1 skipped in 4.74s (%100 Başarı)
 ```
 
 ---
