@@ -115,3 +115,4 @@ def read_midi_file(file_path: str) -> MidiPattern:
         tempo_bpm=round(tempo_bpm, 1),
         notes=sorted(notes, key=lambda n: n.time_bars),
     )
+

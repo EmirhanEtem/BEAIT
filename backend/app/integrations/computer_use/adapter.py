@@ -205,6 +205,10 @@ class GUIAutomationAdapter:
             result.error = f"Screenshot failed: {e}"
         return result
 
+    def gui_act(self, actions: list[dict]) -> ToolResult:
+        """Run an ordered visual/pixel action batch on the GUI channel."""
+        return self.call_tool("GUI", {"actions": actions})
+
     # -- generic -------------------------------------------------------------
 
     def call_tool(self, name: str, arguments: dict) -> ToolResult:
@@ -253,6 +257,18 @@ class GUIAutomationAdapter:
 
     async def async_is_app_running(self, name: str) -> bool:
         return await asyncio.to_thread(self.is_app_running, name)
+
+    async def async_ax_observe(self, window_ref: Optional[str] = None, app: Optional[str] = None) -> ToolResult:
+        return await asyncio.to_thread(self.ax_observe, window_ref, app)
+
+    async def async_ax_find(self, query: dict, window_ref: Optional[str] = None) -> ToolResult:
+        return await asyncio.to_thread(self.ax_find, query, window_ref)
+
+    async def async_ax_act(self, actions: list[dict], window_ref: Optional[str] = None) -> ToolResult:
+        return await asyncio.to_thread(self.ax_act, actions, window_ref)
+
+    async def async_gui_act(self, actions: list[dict]) -> ToolResult:
+        return await asyncio.to_thread(self.gui_act, actions)
 
     # -- JSON-RPC internals --------------------------------------------------
 

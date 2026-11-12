@@ -110,3 +110,4 @@ def validate_drum_channel(
 
     is_valid = len(errors) == 0
     return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
+

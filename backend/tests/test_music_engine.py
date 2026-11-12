@@ -141,3 +141,4 @@ def test_midi_file_export_and_import():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+

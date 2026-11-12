@@ -182,3 +182,4 @@ def generate_bassline(
         scale=scale_enum,
         notes=notes,
     )
+

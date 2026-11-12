@@ -94,3 +94,4 @@ class DrumPattern(BaseModel):
     length: int = Field(default=16, ge=1, le=256)
     tempo_bpm: float = Field(default=130.0, ge=20.0, le=999.0)
     channels: List[DrumChannelPattern] = Field(default_factory=list)
+

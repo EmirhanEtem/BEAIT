@@ -54,6 +54,20 @@ class VerificationEngine:
             elif action.action_type == ActionType.CREATE_PATTERN:
                 return self._verify_create_pattern(action, post)
 
+            elif action.action_type in (ActionType.OPEN_PLUGIN_WINDOW, ActionType.LOAD_PLUGIN_PRESET):
+                is_ver = bool(post.get("verified"))
+                return VerificationOutcome(
+                    success=is_ver,
+                    verified=is_ver,
+                    detail=(
+                        f"GUI operation verified via {post.get('method_used', 'UIA')}."
+                        if is_ver
+                        else "GUI operation could not be verified visually or semantically."
+                    ),
+                    needs_recovery=not is_ver,
+                    error=None if is_ver else "gui_verification_failed",
+                )
+
             elif action.action_type == ActionType.EXPORT_AUDIO:
                 return self._verify_export(action, post)
 

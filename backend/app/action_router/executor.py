@@ -177,7 +177,7 @@ class ActionExecutor:
 
         # 3. GUI Automation Real Execution
         if action.execution_route == "GUI_AUTOMATION" and self.hcu_adapter:
-            return await self._execute_gui_automation(action)
+            return await self._execute_gui_automation(action, cancel_event=cancel_event)
 
         # 4. Mock handler (Fallback)
         return await self._mock_execution(action, cancel_event)
@@ -278,17 +278,57 @@ class ActionExecutor:
         # For pattern/MIDI actions not yet handled via SysEx, fallback to mock/safe
         return await self._mock_execution(action, None)
 
-    async def _execute_gui_automation(self, action: ActionDefinition) -> Dict[str, Any]:
-        """Execution through GUI Automation (HCU)."""
+    async def _execute_gui_automation(
+        self,
+        action: ActionDefinition,
+        cancel_event: Optional[asyncio.Event] = None,
+    ) -> Dict[str, Any]:
+        """Execution through GUI Automation (HCU & SafeGUIExecutor)."""
         if not self.hcu_adapter:
-            return await self._mock_execution(action, None)
+            return await self._mock_execution(action, cancel_event)
 
         atype = action.action_type
-        if atype == ActionType.CAPTURE_SCREENSHOT:
-            png = await self.hcu_adapter.async_take_screenshot()
-            return {"data": png, "size": len(png) if png else 0}
+        params = action.parameters
 
-        return await self._mock_execution(action, None)
+        if atype == ActionType.CAPTURE_SCREENSHOT:
+            shot = await self.hcu_adapter.async_capture_screenshot()
+            return {
+                "data": shot.path if shot.success else None,
+                "success": shot.success,
+                "width": shot.width,
+                "height": shot.height,
+                "error": shot.error,
+            }
+
+        elif atype == ActionType.OPEN_PLUGIN_WINDOW:
+            from ..integrations.computer_use.safe_gui import SafeGUIExecutor
+            from ..integrations.computer_use.window_detector import WindowDetector
+
+            detector = WindowDetector()
+            wins = detector.find_windows_by_title(params.get("window_title", "FL Studio"))
+            if not wins:
+                raise RuntimeError("Target FL Studio window not found or not visible for GUI action.")
+
+            safe_gui = SafeGUIExecutor(adapter=self.hcu_adapter, window_detector=detector)
+            plugin_name = params.get("plugin_name", "Plugin")
+            outcome = await safe_gui.safe_click(
+                target_window=wins[0],
+                target_description=f"Open plugin window: {plugin_name}",
+                semantic_query={"name": plugin_name},
+                fallback_coords=params.get("fallback_coords"),
+                expected_title_part="FL Studio",
+                cancel_event=cancel_event,
+            )
+            if not outcome.success:
+                raise RuntimeError(outcome.error or "Failed to open plugin window via GUI automation.")
+            return {
+                "verified": outcome.verified,
+                "method_used": outcome.method_used,
+                "coordinates": outcome.coordinates,
+                "post_screenshot": outcome.post_screenshot,
+            }
+
+        return await self._mock_execution(action, cancel_event)
 
     async def _mock_execution(
         self,

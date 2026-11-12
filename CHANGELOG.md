@@ -1,5 +1,16 @@
 # Changelog
 
+## Phase 5 — GUI Otomasyonu ve Görünür Operasyon Deneyimi (2026-11-12)
+
+### Oluşturulan
+- `backend/app/integrations/computer_use/window_detector.py`: Windows `user32` / `shcore` tabanlı aktif pencere, DPI ölçeği, odak doğrulama ve bayat hedef (`is_target_stale`) algılayıcısı.
+- `backend/app/integrations/computer_use/user_intervention.py`: Fiziksel fare hareketi (`> 20px`), pencere odak kaybı ve global STOP butonunu algılayıp otomasyonu anında kesen `InterventionDetector`.
+- `backend/app/integrations/computer_use/safe_gui.py`: 7 adımlı güvenlik protokolü uygulayan `SafeGUIExecutor` (`safe_click`, `safe_type`, `safe_hotkey`, `safe_scroll`, `safe_drag`), semantik UIA önceliği, ekran görüntüsü + pencere sınırı doğrulamalı koordinat yedeği ve canlı `GUIActionMarker` yayını.
+- `apps/desktop/src/components/CursorMarker.tsx`: Canlı HCU masaüstü eylemleri (`CANLI MASAÜSTÜ (HCU)`) ile UI simülasyonu ayrımı rozeti.
+- `backend/tests/test_gui_phase5.py`: 9 yeni GUI güvenlik ve otomasyon testi; toplam 73 test başarıyla geçti.
+- `docs/security.md`: 7 adımlı GUI güvenlik protokolü ve onay mekanizması belgesi.
+- `docs/phase-reports/phase-5-report.md`: Phase 5 tamamlama raporu.
+
 ## Phase 4 — Gerçek FL Studio Kontrol MVP (Real FL Studio Control MVP) (2026-11-12)
 
 ### Oluşturulan

@@ -121,3 +121,4 @@ def quantize_pitch_to_scale(pitch: int, allowed_pitches: List[int]) -> int:
     if not allowed_pitches:
         return max(0, min(127, pitch))
     return min(allowed_pitches, key=lambda p: abs(p - pitch))
+

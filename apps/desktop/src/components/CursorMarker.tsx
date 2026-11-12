@@ -27,7 +27,11 @@ export const CursorMarkerOverlay: React.FC = () => {
       {/* Target Description Tag */}
       <div className="bg-slate-900/90 border border-fl-border text-white text-[11px] px-2 py-0.5 rounded shadow-lg backdrop-blur flex items-center space-x-1 whitespace-nowrap">
         <span>{cursorMarker.label || "Hedef Kontrol"}</span>
-        {!cursorMarker.is_real_desktop && (
+        {cursorMarker.is_real_desktop ? (
+          <span className="text-[9px] bg-emerald-900/80 text-emerald-300 border border-emerald-700 px-1 rounded ml-1 font-mono">
+            CANLI MASAÜSTÜ (HCU)
+          </span>
+        ) : (
           <span className="text-[9px] bg-slate-800 text-amber-300 px-1 rounded ml-1 font-mono">
             UI Simülasyonu
           </span>

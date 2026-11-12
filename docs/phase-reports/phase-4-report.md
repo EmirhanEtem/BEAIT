@@ -155,3 +155,4 @@ backend\tests\test_producer_orchestrator.py ........                     [100%]
 | Eylem sırası companion uygulamasında gösterilebilir | ✅ | FastAPI `/api/tasks` ve WebSocket `/ws` ile eylem durumları canlı yayınlandı |
 | Desteklenmeyen işlemler GUI otomasyonuna yönlendirilir | ✅ | Ekran görüntüsü ve UI işlemleri `GUI_AUTOMATION` rotasına yönlendirildi |
 | Mevcut proje içeriği sessizce bozulmaz | ✅ | `TestProjectSession` ile başlangıç durumu anlık kaydedilip test sonrası 130 BPM ve boş adımlara geri döndürüldü |
+

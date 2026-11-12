@@ -119,3 +119,4 @@ def progression_to_notes(
         current_bar += bars_per_chord
 
     return notes
+
