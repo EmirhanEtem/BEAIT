@@ -341,9 +341,22 @@ class TaskExecutionManager:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.now(timezone.utc)
                 task.result_summary = "Plan executed successfully."
+                summary_lines = [
+                    f"Plan tamamlandı! Toplam {len(task.actions)} eylem başarıyla yürütüldü ve doğrulandı."
+                ]
+                if plan and plan.composition:
+                    summary_lines.append(
+                        f"• Besteci (Composer): {plan.composition.root} {plan.composition.scale} tonunda {plan.composition.bars} barlık akor, bas ve melodi üretildi."
+                    )
+                if plan and plan.arrangement:
+                    sec_names = " -> ".join(f"{s.name} ({s.bars} bar)" for s in plan.arrangement.sections)
+                    summary_lines.append(f"• Aranjör (Arranger): {sec_names} (Toplam {plan.arrangement.total_bars} bar).")
+                if plan and plan.remaining_limitations:
+                    summary_lines.append(f"• Not / Sınırlamalar: {' '.join(plan.remaining_limitations)}")
+
                 await self.add_chat_message(
                     "assistant",
-                    f"Plan completed! All {len(task.actions)} actions finished successfully.",
+                    "\n".join(summary_lines),
                     task_id=task_id,
                 )
                 await self.refresh_project_context()

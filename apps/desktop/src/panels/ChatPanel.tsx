@@ -53,6 +53,16 @@ export const ChatPanel: React.FC = () => {
             {/* Quick Suggestions */}
             <div className="mt-4 flex flex-wrap gap-2 justify-center max-w-md">
               <button
+                onClick={() =>
+                  handlePreset(
+                    "FL Studio'da 128 BPM, A minor tonunda melodic techno başlangıcı oluştur. Kick ve percussion düzenini kur, bassline ve ana melodiyi yaz, sonra kısa bir intro ve drop arrangement'ı hazırla."
+                  )
+                }
+                className="text-xs px-2.5 py-1.5 rounded bg-fl-orange/20 hover:bg-fl-orange/30 text-fl-orange border border-fl-orange/40 transition font-medium"
+              >
+                🚀 Tam Melodic Techno Prodüksiyon Planı (128 BPM A Minor)
+              </button>
+              <button
                 onClick={() => handlePreset("128 BPM, A minor tonunda melodic techno kick ve bas düzeni oluştur.")}
                 className="text-xs px-2.5 py-1.5 rounded bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700 transition"
               >

@@ -220,3 +220,56 @@ class TestPrivacySafeCrashAndLogExport:
         assert exp_resp.status_code == 200
         assert exp_resp.json()["exported"] is True
         assert os.path.isfile(export_target)
+
+    def test_production_audio_and_sample_api_endpoints(self, tmp_path):
+        client = TestClient(app)
+
+        # 1. GET /api/presets
+        presets_resp = client.get("/api/presets")
+        assert presets_resp.status_code == 200
+        assert len(presets_resp.json()["presets"]) >= 4
+
+        # 2. POST /api/production/plan
+        plan_resp = client.post(
+            "/api/production/plan",
+            json={
+                "prompt": "FL Studio'da 128 BPM, A minor tonunda melodic techno başlangıcı oluştur. Kick ve percussion düzenini kur, bassline ve ana melodiyi yaz, sonra kısa bir intro ve drop arrangement'ı hazırla.",
+                "dry_run": True,
+            },
+        )
+        assert plan_resp.status_code == 200
+        pdata = plan_resp.json()
+        assert pdata["parsed_intent"]["genre"] == "melodic_techno"
+        assert pdata["parsed_intent"]["tempo_bpm"] == 128.0
+        assert len(pdata["actions"]) >= 8
+
+        # 3. POST /api/audio/analyze
+        example_wav = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "fixtures", "audio", "example_render.wav")
+        )
+        audio_resp = client.post(
+            "/api/audio/analyze",
+            json={"file_path": example_wav, "expected_duration_seconds": 2.0},
+        )
+        assert audio_resp.status_code == 200
+        adata = audio_resp.json()
+        assert adata["analysis"]["success"] is True
+        assert adata["critic_feedback"]["overall_health"] == "HEALTHY"
+
+        # 4. POST /api/samples/scan blocks unapproved directory with 403
+        unapproved_dir = str(tmp_path / "unapproved")
+        os.makedirs(unapproved_dir, exist_ok=True)
+        approved_dir = str(tmp_path / "approved")
+        os.makedirs(approved_dir, exist_ok=True)
+
+        scan_blocked = client.post(
+            "/api/samples/scan",
+            json={"directory": unapproved_dir, "approved_directories": [approved_dir]},
+        )
+        assert scan_blocked.status_code == 403
+
+        # 5. GET /api/memory/history
+        mem_resp = client.get("/api/memory/history")
+        assert mem_resp.status_code == 200
+        assert "preferences" in mem_resp.json()
+

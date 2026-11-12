@@ -45,3 +45,4 @@ Bu belge, **FL Studio AI Assistant** monoreposunda kullanılan tüm dış bileş
 
 - Tüm çalışma zamanı ve derleme bağımlılıkları izinlayıcı açık kaynak lisanslarına (**MIT**, **BSD-3-Clause**, **Apache-2.0**, **ISC**) sahiptir.
 - Depoda veya derlenen `fl-studio-ai-assistant.exe` ikili dosyasında hiçbir özel mülkiyetli DAW ses motoru kodu, kırılmış eklenti veya API anahtarı yer almamaktadır.
+

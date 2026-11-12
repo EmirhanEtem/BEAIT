@@ -1,4 +1,4 @@
-﻿# FL Studio AI Assistant — First-Run Verification & Launcher Script (Phase 9)
+# FL Studio AI Assistant — First-Run Verification & Launcher Script (Phase 9)
 param(
     [switch]$CheckOnly
 )

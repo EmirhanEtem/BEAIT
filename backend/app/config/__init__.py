@@ -15,3 +15,4 @@ __all__ = [
     "PrivacySafeLogExporter",
     "sanitize_user_paths",
 ]
+

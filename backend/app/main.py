@@ -11,7 +11,12 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from dataclasses import asdict
+from .agents import CriticAgent
 from .config import PrivacySafeLogExporter, SystemDiagnosticsService
+from .integrations.audio import AudioAnalyzer
+from .integrations.filesystem import SampleScanner
+from .music_engine import GenrePresetRegistry
 from .schemas import (
     AppSettings,
     ChatMessage,
@@ -197,5 +202,96 @@ async def export_logs(req: LogExportRequest):
         memory=manager.orchestrator.memory,
     )
     return {"exported": True, "path": written_path}
+
+
+# -- Production Engine, Audio Analysis & Sample Scanner Endpoints ------------
+
+@app.get("/api/presets")
+async def list_genre_presets():
+    registry = GenrePresetRegistry()
+    return {
+        "stylistic_disclaimer": registry.disclaimer,
+        "presets": [p.model_dump() for p in registry.list_presets()],
+    }
+
+
+class ProductionPlanRequest(BaseModel):
+    prompt: str
+    dry_run: bool = True
+    midi_export_dir: Optional[str] = None
+
+
+@app.post("/api/production/plan")
+async def create_production_plan(req: ProductionPlanRequest):
+    plan = manager.orchestrator.create_plan(
+        req.prompt,
+        dry_run=req.dry_run,
+        midi_export_dir=req.midi_export_dir,
+    )
+    return {
+        "plan_id": plan.plan_id,
+        "task_id": plan.task_id,
+        "dry_run": plan.dry_run,
+        "requires_approval": plan.requires_approval,
+        "parsed_intent": asdict(plan.parsed_intent) if plan.parsed_intent else None,
+        "actions": [a.model_dump(mode="json") for a in plan.actions],
+        "arrangement": asdict(plan.arrangement) if plan.arrangement else None,
+        "remaining_limitations": plan.remaining_limitations,
+        "prompt_disclosure": asdict(plan.prompt_disclosure) if plan.prompt_disclosure else None,
+    }
+
+
+class AudioAnalyzeRequest(BaseModel):
+    file_path: str
+    expected_duration_seconds: Optional[float] = None
+
+
+@app.post("/api/audio/analyze")
+async def analyze_audio_render(req: AudioAnalyzeRequest):
+    analysis = AudioAnalyzer().analyze_file(req.file_path)
+    critic_report = CriticAgent().evaluate_render(
+        analysis,
+        expected_duration_seconds=req.expected_duration_seconds,
+    )
+    return {
+        "analysis": analysis.to_dict(),
+        "critic_feedback": {
+            "render_valid": critic_report.render_valid,
+            "overall_health": critic_report.overall_health,
+            "measured_findings": [asdict(f) for f in critic_report.measured_findings],
+            "subjective_recommendations": critic_report.subjective_recommendations,
+            "proposed_revisions": [r.model_dump(mode="json") for r in critic_report.proposed_revisions],
+            "requires_user_approval_for_revisions": critic_report.requires_user_approval_for_revisions,
+            "objectivity_disclaimer": critic_report.objectivity_disclaimer,
+        },
+    }
+
+
+class SampleScanRequest(BaseModel):
+    directory: str
+    approved_directories: List[str]
+    category_filter: Optional[str] = None
+
+
+@app.post("/api/samples/scan")
+async def scan_samples_endpoint(req: SampleScanRequest):
+    scanner = SampleScanner(approved_directories=req.approved_directories)
+    try:
+        samples = scanner.scan_directory(req.directory, category_filter=req.category_filter)
+        return {"count": len(samples), "samples": [asdict(s) for s in samples]}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/memory/history")
+async def get_memory_history():
+    mem = manager.orchestrator.memory
+    return {
+        "preferences": asdict(mem.preferences),
+        "recent_summaries": [asdict(s) for s in mem.get_recent_summaries()],
+    }
+
 
 

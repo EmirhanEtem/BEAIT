@@ -54,3 +54,4 @@ Render işlemi `AWAITING_OVERWRITE_APPROVAL` veya `DIALOG_NOT_FOUND` durumuyla d
 1. **Yeni Sürüm Kaydetme (`Ctrl+N`):** Önemli bir projede çok adımlı aranjman veya mikser değişiklikleri çalıştırmadan önce FL Studio'da `Ctrl+N` kısayoluyla numaralı yeni bir `.flp` yedeği oluşturun.
 2. **Başlangıç Anlık Görüntüsü (`TestProjectSession`):** Asistan, canlı oturumlarda tempo, step-grid ve Master mikser seviyesini değiştirmeden önce anlık görüntü alır ve hata durumunda başlangıç değerlerini geri yükleyebilir.
 3. **Gizlilik Korumalı Günlük Dışa Aktarımı (`POST /api/logs/export`):** Bir hata raporu paylaşmanız gerektiğinde `/api/logs/export` uç noktasını kullanın; bu çıktı tüm API anahtarlarını (`[REDACTED_SECRET]`) ve Windows kullanıcı adı yollarını (`C:\Users\[USER]`) otomatik olarak temizler.
+

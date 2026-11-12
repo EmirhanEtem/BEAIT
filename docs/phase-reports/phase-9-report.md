@@ -59,3 +59,4 @@ Toplam Depo Testleri (Phase 1..9): 108 passed, 9 deselected (%100 Başarı)
 | Durdurma/iptal ve onay kontrolleri çalışır | ✅ | Global STOP ve `AWAITING_APPROVAL` kapıları tüm fazlarda doğrulandı |
 | Kurulum paketinde gizli anahtar (secret) bulunmaz | ✅ | `scan_config_files_for_secrets` (`status == CLEAN`) ile doğrulandı |
 | Bilinen tüm sınırlamalar belgelenmiştir | ✅ | `docs/fl-studio-integration.md`, `docs/security.md` ve görev özetlerinde (`remaining_limitations`) açıkça belgelenmiştir |
+
