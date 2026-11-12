@@ -1,0 +1,89 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*.local
+
+# ===== Node / Frontend =====
+node_modules/
+.pnp.*
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.turbo/
+
+# ===== Tauri =====
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/WixTools/
+apps/desktop/src-tauri/Frameworks/
+
+# ===== Rust =====
+target/
+Cargo.lock
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Database =====
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== Secrets =====
+.env
+.env.local
+.env.production
+secrets/
+*.pem
+*.key
+
+# ===== Build artifacts =====
+*.exe
+!FL64.exe
+*.msi
+*.nsis
+
+# ===== Test / Coverage =====
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== OS =====
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ===== Project snapshots =====
+snapshots/
+backups/
+
+# ===== Audio renders (user-specific) =====
+renders/
+exports/
