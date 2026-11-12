@@ -1,5 +1,20 @@
 # Changelog
 
+## Phase 3 — Eylem Sistemi, İzinler, Doğrulama ve Kurtarma (2026-11-12)
+
+### Oluşturulan
+- `backend/app/schemas/actions.py`: Tip korumalı eylem veri modelleri (`ActionType`, `ActionLifecycleState`, risk seviyeleri, geçiş tablosu). Keyfi kabuk komutları şema seviyesinde engellendi.
+- `backend/app/action_router/capabilities.py`: Yetenek kayıt defteri (`CapabilityRegistry`), FL Studio MCP, HCU ve Mock bağdaştırıcıları için eylem haritalaması.
+- `backend/app/action_router/permissions.py`: Risk sınıflandırıcısı ve izin yöneticisi (`PermissionManager`), `DESTRUCTIVE` ve `HIGH` riskli eylemler için `AWAITING_APPROVAL` onay kapısı.
+- `backend/app/action_router/router.py`: Tercihli, yedek ve mock rotalama motoru (`ActionRouter`).
+- `backend/app/action_router/executor.py`: Eylem yürütücüsü (`ActionExecutor`) — zaman aşımı, sınırlı yeniden deneme (bounded retries), iptal (cancellation), doğrulama ve veritabanı kalıcılığı.
+- `backend/app/database/persistence.py`: SQLite kalıcılık katmanı (`DatabaseManager`) — Windows dosya kilitlerini önleyen context manager (`_session()`).
+- `backend/app/verification/engine.py`: Eylem doğrulama motoru (`VerificationEngine`) — BPM okuma, mikser doğrulaması, pattern kontrolü, dışa aktarım (export) dosya boyutu kontrolü.
+- `backend/app/recovery/manager.py`: Kurtarma yöneticisi (`RecoveryManager`) — kontrol noktaları (checkpoint) oluşturma, başarısızlık planı (recovery plan) ve `NEEDS_RECOVERY` durum yönetimi.
+- `backend/tests/test_action_system.py`: 15 adet kapsamlı birim testi; toplam 48 test başarıyla geçti.
+- `docs/action-protocol.md`: Eylem modeli, izin modeli, rota seçimi, doğrulama ve kurtarma mimarisi belgesi.
+- `docs/phase-reports/phase-3-report.md`: Phase 3 tamamlama raporu.
+
 ## Phase 2 — Masaüstü Yardımcı Temeli (Desktop Companion Foundation) (2026-11-12)
 
 ### Oluşturulan

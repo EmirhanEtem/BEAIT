@@ -1,0 +1,188 @@
+"""Verification Engine for DAW and GUI actions."""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from ..schemas.actions import ActionDefinition, ActionLifecycleState, ActionType
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class VerificationOutcome:
+    success: bool
+    verified: bool
+    detail: str
+    needs_recovery: bool = False
+    error: Optional[str] = None
+
+
+class VerificationEngine:
+    """Verifies action execution effects against resulting state."""
+
+    def verify(
+        self,
+        action: ActionDefinition,
+        pre_state: Optional[Dict[str, Any]] = None,
+        post_state: Optional[Dict[str, Any]] = None,
+    ) -> VerificationOutcome:
+        """Evaluates resulting state against expected action parameters."""
+        pre = pre_state or {}
+        post = post_state or {}
+
+        try:
+            if action.action_type == ActionType.SET_TEMPO:
+                return self._verify_tempo(action, post)
+
+            elif action.action_type in (ActionType.SET_MIXER_VOLUME, ActionType.SET_MIXER_PAN):
+                return self._verify_mixer(action, post)
+
+            elif action.action_type in (ActionType.CREATE_MIDI_PATTERN, ActionType.CREATE_DRUM_PATTERN):
+                return self._verify_pattern(action, post)
+
+            elif action.action_type == ActionType.EXPORT_AUDIO:
+                return self._verify_export(action, post)
+
+            elif action.action_type in (
+                ActionType.READ_TEMPO,
+                ActionType.READ_PLAY_STATE,
+                ActionType.READ_PROJECT_STATE,
+                ActionType.READ_CHANNELS,
+                ActionType.READ_MIXER_TRACKS,
+                ActionType.READ_PATTERNS,
+                ActionType.CAPTURE_SCREENSHOT,
+                ActionType.SCAN_SAMPLE_DIRECTORY,
+                ActionType.ANALYZE_AUDIO_FILE,
+            ):
+                # Read-only actions succeed if data was retrieved
+                has_data = post.get("data") is not None or post.get("result") is not None
+                return VerificationOutcome(
+                    success=has_data,
+                    verified=True,
+                    detail="Read operation returned valid data." if has_data else "No data returned from read.",
+                    needs_recovery=not has_data,
+                )
+
+            # Default / Unverifiable actions: Never silently claim verified success!
+            return VerificationOutcome(
+                success=True,
+                verified=False,
+                detail="Command executed, but DAW API does not expose readback verification for this action.",
+                needs_recovery=False,
+            )
+
+        except Exception as e:
+            logger.error("Verification error on action %s: %s", action.action_id, e)
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Verification failed with error: {e}",
+                needs_recovery=True,
+                error=str(e),
+            )
+
+    def _verify_tempo(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        requested = float(action.parameters.get("bpm", 0))
+        actual = post.get("bpm")
+        if actual is None:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail="Post-action BPM could not be read back from FL Studio.",
+                needs_recovery=True,
+                error="missing_post_bpm",
+            )
+        
+        diff = abs(float(actual) - requested)
+        tolerance = action.parameters.get("tolerance", 0.05)
+        passed = diff <= tolerance
+
+        return VerificationOutcome(
+            success=passed,
+            verified=passed,
+            detail=f"BPM readback: expected {requested}, got {actual} (diff: {diff:.3f})",
+            needs_recovery=not passed,
+            error=None if passed else "bpm_mismatch",
+        )
+
+    def _verify_mixer(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        param_name = "volume" if action.action_type == ActionType.SET_MIXER_VOLUME else "pan"
+        requested = float(action.parameters.get(param_name, 0))
+        actual = post.get(param_name)
+        if actual is None:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Mixer {param_name} could not be read back.",
+                needs_recovery=True,
+                error="missing_mixer_param",
+            )
+
+        diff = abs(float(actual) - requested)
+        passed = diff <= 0.05
+        return VerificationOutcome(
+            success=passed,
+            verified=passed,
+            detail=f"Mixer {param_name}: requested {requested}, got {actual}",
+            needs_recovery=not passed,
+            error=None if passed else "mixer_param_mismatch",
+        )
+
+    def _verify_pattern(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        # Check if notes or grid steps were written
+        pattern_data = post.get("pattern") or post.get("notes") or post.get("grid")
+        if pattern_data is not None:
+            return VerificationOutcome(
+                success=True,
+                verified=True,
+                detail="Pattern data successfully confirmed in session.",
+            )
+        return VerificationOutcome(
+            success=False,
+            verified=False,
+            detail="Pattern notes could not be verified in target channel.",
+            needs_recovery=True,
+            error="pattern_empty",
+        )
+
+    def _verify_export(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        file_path = action.parameters.get("output_path") or post.get("output_path")
+        if not file_path:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail="Export file path not specified.",
+                needs_recovery=True,
+            )
+        
+        p = Path(file_path)
+        if not p.exists():
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Exported audio file does not exist: {file_path}",
+                needs_recovery=True,
+                error="file_not_found",
+            )
+        
+        size = p.stat().st_size
+        if size < 1024:  # At least 1KB for valid audio header
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Exported audio file too small ({size} bytes).",
+                needs_recovery=True,
+                error="file_too_small",
+            )
+
+        return VerificationOutcome(
+            success=True,
+            verified=True,
+            detail=f"Exported file verified: {size} bytes.",
+        )
+

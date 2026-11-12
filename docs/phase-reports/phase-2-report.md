@@ -89,3 +89,4 @@ Toplam: 25 passed, 9 deselected (real marks) in 2.83s
 
 - `docs/architecture.md`: Sistem mimarisi, katmanlar arası veri akışı, WebSocket protokolü ve güvenlik modelleri belgelendi.
 - Tüm bileşenler `FL_Studio_AI_Assistant_Agent_Project_Specification.md` şartnamesine %100 sadık kalınarak oluşturuldu.
+
