@@ -183,3 +183,115 @@ def generate_bassline(
         notes=notes,
     )
 
+
+def generate_melody(
+    root: str = "C",
+    scale: str = "natural_minor",
+    progression: Optional[List[str]] = None,
+    bars: int = 4,
+    density: float = 0.5,
+    octave: int = 5,
+    tempo: float = 120.0,
+    seed: int = 42,
+) -> MidiPattern:
+    """Generate a scale-constrained melodic motif over a chord progression."""
+    rng = random.Random(seed)
+    if progression is None:
+        progression = ["i", "VI", "III", "VII"]
+
+    scale_enum = ScaleType(scale.lower()) if scale in [s.value for s in ScaleType] else ScaleType.NATURAL_MINOR
+    allowed_pitches = get_scale_pitches(root, scale_enum, start_octave=octave, end_octave=octave + 1)
+    if not allowed_pitches:
+        allowed_pitches = [60, 62, 63, 65, 67, 68, 70, 72]
+
+    notes: List[MidiNote] = []
+    # 8 eighth-note slots per bar
+    slots_per_bar = 8
+    slot_duration = 1.0 / slots_per_bar
+    current_pitch_idx = 0
+
+    for bar_idx in range(bars):
+        for slot in range(slots_per_bar):
+            is_downbeat = (slot % 4 == 0)
+            # Always place a note on bar start; otherwise use density probability
+            if (bar_idx == 0 and slot == 0) or (is_downbeat and rng.random() < max(0.65, density)) or (rng.random() < density):
+                if is_downbeat:
+                    # Target stable scale degrees (root, 3rd, 5th)
+                    stable_indices = [0, 2, 4]
+                    current_pitch_idx = rng.choice([i for i in stable_indices if i < len(allowed_pitches)] or [0])
+                else:
+                    # Stepwise motion (-2, -1, +1, +2 scale steps)
+                    step = rng.choice([-2, -1, 1, 2])
+                    current_pitch_idx = max(0, min(len(allowed_pitches) - 1, current_pitch_idx + step))
+
+                pitch = allowed_pitches[current_pitch_idx]
+                time_bars = round(bar_idx + slot * slot_duration, 4)
+                length_bars = round(slot_duration * 0.9, 4)
+                vel = 0.82 if is_downbeat else 0.68
+
+                notes.append(
+                    MidiNote(
+                        pitch=pitch,
+                        time_bars=time_bars,
+                        length_bars=length_bars,
+                        velocity=vel,
+                    )
+                )
+
+    return MidiPattern(
+        name=f"Melody - {root} {scale_enum.value}",
+        bars=bars,
+        tempo_bpm=tempo,
+        key_root=root,
+        scale=scale_enum,
+        notes=notes,
+    )
+
+
+def apply_humanization(
+    pattern: MidiPattern,
+    velocity_variation: float = 0.06,
+    swing_amount: float = 0.015,
+    seed: int = 101,
+) -> MidiPattern:
+    """Apply subtle musical velocity variation and groove/swing timing while preserving bar boundaries."""
+    rng = random.Random(seed)
+    humanized_notes: List[MidiNote] = []
+    max_bar = float(pattern.bars)
+
+    for note in pattern.notes:
+        # 1. Velocity variation
+        vel_delta = rng.uniform(-velocity_variation, velocity_variation)
+        new_vel = round(max(0.05, min(1.0, note.velocity + vel_delta)), 3)
+
+        # 2. Swing on off-beat 16ths (every odd 16th note = 0.0625 bar multiples)
+        sixteenth_index = round(note.time_bars / 0.0625)
+        time_offset = swing_amount if (sixteenth_index % 2 == 1) else 0.0
+        new_time = round(max(0.0, note.time_bars + time_offset), 4)
+
+        # Clamp length so note never exceeds pattern bar boundary
+        max_len = max(0.01, max_bar - new_time)
+        new_len = round(min(note.length_bars, max_len), 4)
+
+        humanized_notes.append(
+            MidiNote(
+                pitch=note.pitch,
+                time_bars=new_time,
+                length_bars=new_len,
+                velocity=new_vel,
+                channel=note.channel,
+                pan=note.pan,
+            )
+        )
+
+    return MidiPattern(
+        name=f"{pattern.name} (Humanized)",
+        time_signature=pattern.time_signature,
+        bars=pattern.bars,
+        tempo_bpm=pattern.tempo_bpm,
+        key_root=pattern.key_root,
+        scale=pattern.scale,
+        notes=humanized_notes,
+    )
+
+

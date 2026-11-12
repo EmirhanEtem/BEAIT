@@ -35,3 +35,4 @@ Herhangi bir GUI eylemi (`safe_click`, `safe_type`, `safe_hotkey`, `safe_scroll`
 
 - Dosya üzerine yazma, proje sıfırlama, dışa aktarma veya yıkıcı kısayollar (`requires_confirmation=True`) kullanıcı açıkça onaylamadan (`user_confirmed=True`) çalıştırılamaz.
 - Onaylanmamış yüksek riskli GUI eylemleri `method_used="aborted"` durumuyla reddedilir.
+

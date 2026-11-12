@@ -636,3 +636,4 @@ class SafeGUIExecutor:
                 target_description=target_description,
                 error=str(e),
             )
+

@@ -1,5 +1,18 @@
 # Changelog
 
+## Phase 6 — Müzik Prodüksiyon Motoru (Music Production Engine) (2026-11-12)
+
+### Oluşturulan
+- `configs/genre-presets.json` & `backend/app/music_engine/presets.py`: Düzenlenebilir tür ve mod ön ayarları (`melodic_techno`, `deep_house`, `trap_dark`, `boom_bap_chill`), bölüm şablonları ve açık stilistik sorumluluk reddi (`stylistic_disclaimer`).
+- `backend/app/music_engine/generator.py`: Gam kısıtlamalı melodi üreticisi (`generate_melody`) ve ölçü sınırlarını koruyan tuşe/swing insansılaştırma (`apply_humanization`).
+- `backend/app/agents/composer.py`: `ComposerAgent` ve `CompositionBundle` — akor yürüyüşü, bas hattı, melodi üretimi, deterministik MIDI doğrulaması ve `.mid` dışa aktarımı (`backend/tests/fixtures/midi/`).
+- `backend/app/agents/rhythm.py`: `RhythmAgent` ve `RhythmBundle` — çok kanallı davul kalıpları, enerji varyantları (`full`, `intro`, `breakdown`) ve FL Studio `SET_STEP_GRID` eylem üretimi.
+- `backend/app/agents/sound_designer.py`: `SoundDesignerAgent` ve `SoundDesignPlan` — enstrüman katmanlama önerileri ve başlangıç mikser seviye/pan eylemleri.
+- `backend/app/agents/arranger.py`: `ArrangerAgent` ve `ArrangementPlan` — kesintisiz çok bölümlü şarkı yapısı (`Intro`, `Build`, `Drop`, `Breakdown`, `Outro`) ve FL Studio `CREATE_PATTERN` + `ADD_ARRANGEMENT_MARKER` eylemleri.
+- `backend/app/integrations/filesystem/sample_scanner.py`: `SampleScanner` — yalnızca onaylı dizinleri (`approved_directories`) tarayan, WAV başlık meta verisi (`duration_seconds`, `sample_rate`, `channels`, `bit_depth`), BPM/ton etiketleri ve kategori çıkaran güvenli sample tarayıcısı ve ön dinleme (`prepare_audition`) iş akışı.
+- `backend/tests/test_phase6_production.py`: 13 yeni prodüksiyon ve güvenlik testi; toplam 86 test %100 başarıyla geçti.
+- `docs/phase-reports/phase-6-report.md`: Phase 6 tamamlama raporu.
+
 ## Phase 5 — GUI Otomasyonu ve Görünür Operasyon Deneyimi (2026-11-12)
 
 ### Oluşturulan

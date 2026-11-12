@@ -66,3 +66,4 @@ Tüm Depo Testleri (Phase 1..5): 73 passed, 9 deselected in 3.60s (%100 Başarı
 | Kullanıcı otomasyon dizisini durdurabilir | ✅ | Global STOP (`cancel_event`) ile çalışan işlem anında `aborted` durumuna geçer |
 | Yardımcı arayüz ne yapıldığını doğru gösterir | ✅ | `GUIActionMarker` ve `CursorMarkerOverlay` ile hedef adı ve CANLI/Simülasyon durumu gösterilir |
 | Manuel kullanıcı müdahalesi yanlış yönlendirilmiş tıklamalara yol açmaz | ✅ | Kullanıcı fareyi hareket ettirdiğinde veya pencere odağını değiştirdiğinde dizi anında kesilir |
+

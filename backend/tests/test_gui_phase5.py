@@ -319,3 +319,4 @@ async def test_safe_type_hotkey_and_drag():
     bad_drag = await executor.safe_drag(win, (200, 200), (1500, 950), "Drag Outside")
     assert bad_drag.success is False
     assert "outside" in (bad_drag.error or "").lower()
+

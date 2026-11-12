@@ -56,6 +56,8 @@ from fl_studio_mcp.protocol import (
     CMD_MIXER_SET_NAME,
     CMD_PATTERN_LIST,
     CMD_ARRANGE_NEW_PATTERN,
+    CMD_ARRANGE_CLONE_PATTERN,
+    CMD_ARRANGE_ADD_MARKER,
     CMD_ENSURE_PIANO_ROLL,
     CMD_PLAY,
     CMD_STOP,
@@ -431,6 +433,21 @@ class FLStudioAdapter:
         idx = int(res.get("index", -1))
         return PatternCreateResult(index=idx, name=name, verified=ok)
 
+    def clone_pattern(self, src: int, new_name: str) -> PatternCreateResult:
+        """Clone an existing pattern (1-based index) and rename the clone."""
+        if src < 1:
+            raise ValueError("Pattern index must be >= 1.")
+        res = self._call(CMD_ARRANGE_CLONE_PATTERN, {"src": src, "new_name": new_name})
+        ok = bool(res.get("ok", False))
+        idx = int(res.get("new_index", -1))
+        return PatternCreateResult(index=idx, name=new_name, verified=ok)
+
+    def add_arrangement_marker(self, bar: int, name: str) -> dict:
+        """Add an arrangement time marker at a 1-based bar in the Playlist."""
+        if bar < 1:
+            raise ValueError("Bar index must be >= 1.")
+        return self._call(CMD_ARRANGE_ADD_MARKER, {"bar": bar, "name": name})
+
     def ensure_piano_roll(self) -> dict:
         """Ensure the Piano roll window is focused/open."""
         return self._call(CMD_ENSURE_PIANO_ROLL)
@@ -517,6 +534,12 @@ class FLStudioAdapter:
 
     async def async_create_pattern(self, name: str) -> PatternCreateResult:
         return await asyncio.to_thread(self.create_pattern, name)
+
+    async def async_clone_pattern(self, src: int, new_name: str) -> PatternCreateResult:
+        return await asyncio.to_thread(self.clone_pattern, src, new_name)
+
+    async def async_add_arrangement_marker(self, bar: int, name: str) -> dict:
+        return await asyncio.to_thread(self.add_arrangement_marker, bar, name)
 
     async def async_ensure_piano_roll(self) -> dict:
         return await asyncio.to_thread(self.ensure_piano_roll)

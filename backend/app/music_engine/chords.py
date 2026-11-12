@@ -40,6 +40,7 @@ MINOR_DIATONIC: Dict[str, tuple[int, ChordQuality]] = {
     "ii": (2, ChordQuality.DIMINISHED),
     "III": (3, ChordQuality.MAJOR),
     "iv": (5, ChordQuality.MINOR),
+    "IV": (5, ChordQuality.MAJOR),  # Dorian subdominant
     "v": (7, ChordQuality.MINOR),
     "V": (7, ChordQuality.MAJOR),  # Harmonic minor dominant
     "VI": (8, ChordQuality.MAJOR),

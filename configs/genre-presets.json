@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "stylistic_disclaimer": "Genre and mood presets are editable starting-point heuristics, not universal rules or guarantees of stylistic perfection.",
+  "presets": {
+    "melodic_techno": {
+      "display_name": "Melodic Techno",
+      "mood": "driving, hypnotic, atmospheric",
+      "default_bpm": 126.0,
+      "bpm_range": [122.0, 130.0],
+      "default_root": "A",
+      "default_scale": "natural_minor",
+      "chord_progression": ["i", "VI", "III", "VII"],
+      "drum_style": "techno",
+      "bass_rhythm": "pumping",
+      "melody_density": 0.6,
+      "velocity_variation": 0.06,
+      "swing_amount": 0.01
+    },
+    "deep_house": {
+      "display_name": "Deep House",
+      "mood": "warm, groovy, soulful",
+      "default_bpm": 122.0,
+      "bpm_range": [118.0, 125.0],
+      "default_root": "C",
+      "default_scale": "dorian",
+      "chord_progression": ["i", "IV", "VII", "III"],
+      "drum_style": "house",
+      "bass_rhythm": "pumping",
+      "melody_density": 0.45,
+      "velocity_variation": 0.08,
+      "swing_amount": 0.03
+    },
+    "trap_dark": {
+      "display_name": "Dark Trap",
+      "mood": "aggressive, sparse, heavy 808",
+      "default_bpm": 140.0,
+      "bpm_range": [130.0, 160.0],
+      "default_root": "F#",
+      "default_scale": "harmonic_minor",
+      "chord_progression": ["i", "VI", "i", "V"],
+      "drum_style": "trap",
+      "bass_rhythm": "sustained",
+      "melody_density": 0.4,
+      "velocity_variation": 0.07,
+      "swing_amount": 0.015
+    },
+    "boom_bap_chill": {
+      "display_name": "Chill Boom Bap",
+      "mood": "laid-back, dusty, rhythmic",
+      "default_bpm": 90.0,
+      "bpm_range": [84.0, 98.0],
+      "default_root": "D",
+      "default_scale": "natural_minor",
+      "chord_progression": ["i", "iv", "VII", "i"],
+      "drum_style": "boom_bap",
+      "bass_rhythm": "sustained",
+      "melody_density": 0.5,
+      "velocity_variation": 0.1,
+      "swing_amount": 0.04
+    }
+  }
+}

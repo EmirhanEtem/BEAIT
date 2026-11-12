@@ -19,10 +19,16 @@ from .chords import (
     progression_to_notes,
 )
 from .generator import (
+    apply_humanization,
     generate_bassline,
     generate_chord_pattern,
     generate_drum_pattern,
+    generate_melody,
     steps_to_string,
+)
+from .presets import (
+    GenrePreset,
+    GenrePresetRegistry,
 )
 from .validator import (
     ValidationResult,
@@ -50,11 +56,14 @@ __all__ = [
     "generate_drum_pattern",
     "generate_chord_pattern",
     "generate_bassline",
+    "generate_melody",
+    "apply_humanization",
     "steps_to_string",
+    "GenrePreset",
+    "GenrePresetRegistry",
     "validate_midi_notes",
     "validate_drum_channel",
     "ValidationResult",
     "export_midi_file",
     "read_midi_file",
 ]
-
