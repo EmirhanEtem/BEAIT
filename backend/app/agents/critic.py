@@ -262,3 +262,4 @@ class CriticAgent:
             proposed_revisions=revisions,
             requires_user_approval_for_revisions=True,
         )
+

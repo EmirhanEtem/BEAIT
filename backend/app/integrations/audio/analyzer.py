@@ -415,3 +415,4 @@ class AudioAnalyzer:
                 best_bpm = round(60.0 / (lag * win_dur), 1)
 
         return best_bpm
+

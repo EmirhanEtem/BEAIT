@@ -51,8 +51,16 @@ class VerificationEngine:
             elif action.action_type == ActionType.SET_STEP_GRID:
                 return self._verify_step_grid(action, post)
 
-            elif action.action_type == ActionType.CREATE_PATTERN:
+            elif action.action_type in (ActionType.CREATE_PATTERN, ActionType.CLONE_PATTERN):
                 return self._verify_create_pattern(action, post)
+
+            elif action.action_type == ActionType.ADD_ARRANGEMENT_MARKER:
+                is_ver = bool(post.get("verified", True))
+                return VerificationOutcome(
+                    success=is_ver,
+                    verified=is_ver,
+                    detail=f"Playlist time marker '{action.parameters.get('name')}' added at bar {action.parameters.get('bar')}.",
+                )
 
             elif action.action_type in (ActionType.OPEN_PLUGIN_WINDOW, ActionType.LOAD_PLUGIN_PRESET):
                 is_ver = bool(post.get("verified"))
@@ -135,7 +143,7 @@ class VerificationEngine:
 
     def _verify_mixer(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
         param_name = "volume" if action.action_type == ActionType.SET_MIXER_VOLUME else "pan"
-        requested = float(action.parameters.get(param_name, 0))
+        requested = float(action.parameters.get(param_name, action.parameters.get("value", 0)))
         actual = post.get(param_name)
         if actual is None:
             return VerificationOutcome(

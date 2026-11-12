@@ -1,0 +1,70 @@
+{
+  "preferences": {
+    "preferred_genre": "melodic_techno",
+    "preferred_bpm": 126.0,
+    "preferred_root": "A",
+    "preferred_scale": "natural_minor",
+    "safe_mode": true,
+    "approved_sample_directories": []
+  },
+  "task_history": [
+    {
+      "task_id": "task_cc3fccb0",
+      "plan_id": "plan_7e423676",
+      "prompt": "FL Studio'da 128 BPM, A minor tonunda melodic techno başlangıcı oluştur. Kick ve percussion düzenini kur, bassline ve ana melodiyi yaz, sonra kısa bir intro ve drop arrangement'ı hazırla.",
+      "parsed_intent": {
+        "raw_prompt": "FL Studio'da 128 BPM, A minor tonunda melodic techno başlangıcı oluştur. Kick ve percussion düzenini kur, bassline ve ana melodiyi yaz, sonra kısa bir intro ve drop arrangement'ı hazırla.",
+        "genre": "melodic_techno",
+        "tempo_bpm": 128.0,
+        "key": "A",
+        "scale": "natural_minor",
+        "time_signature": "4/4",
+        "mood": [],
+        "sections": [
+          "Intro",
+          "Drop"
+        ],
+        "requested_elements": [
+          "kick",
+          "percussion",
+          "bass",
+          "lead_melody"
+        ],
+        "constraints": {
+          "use_existing_project": true,
+          "preserve_existing_tracks": true
+        }
+      },
+      "actions_planned": 11,
+      "actions_succeeded": 11,
+      "actions_verified": 11,
+      "actions_failed": 0,
+      "actions_awaiting_approval": 0,
+      "completed_steps": [
+        "Read current FL Studio project state before applying production plan -> Read operation returned valid data.",
+        "Read FL Studio Channel Rack channels -> Read operation returned valid data.",
+        "Set project tempo to 128.0 BPM (melodic_techno) -> BPM readback: expected 128.0, got 128.0 (diff: 0.000)",
+        "Create pattern '01_Intro' for Intro (8 bars) -> Created pattern '01_Intro' at index 3",
+        "Add Playlist time marker 'Intro' at bar 1 -> Playlist time marker 'Intro' added at bar 1.",
+        "Create pattern '02_Drop' for Drop (16 bars) -> Created pattern '02_Drop' at index 4",
+        "Add Playlist time marker 'Drop' at bar 9 -> Playlist time marker 'Drop' added at bar 9.",
+        "Set 808 Kick step grid (4 active steps) -> Step grid verified on channel 0: steps [0, 4, 8, 12]",
+        "Set 808 Clap step grid (2 active steps) -> Step grid verified on channel 1: steps [4, 12]",
+        "Set 808 HiHat step grid (8 active steps) -> Step grid verified on channel 2: steps [0, 2, 4, 6, 8, 10, 12, 14]",
+        "Set 808 Snare step grid (0 active steps) -> Step grid verified on channel 3: steps []",
+        "Composed & validated A natural_minor chords, bassline, and melody (4 bars).",
+        "Analyzed render 'example_render.wav' -> Critic health: HEALTHY"
+      ],
+      "exported_midi_files": {
+        "chords": "C:\\Users\\emoca\\Desktop\\FlMcp\\backend\\tests\\fixtures\\e2e_demo\\midi\\melodic_techno_chords.mid",
+        "bassline": "C:\\Users\\emoca\\Desktop\\FlMcp\\backend\\tests\\fixtures\\e2e_demo\\midi\\melodic_techno_bassline.mid",
+        "melody": "C:\\Users\\emoca\\Desktop\\FlMcp\\backend\\tests\\fixtures\\e2e_demo\\midi\\melodic_techno_melody.mid"
+      },
+      "remaining_limitations": [
+        "Multi-track polyphonic Piano Roll notes (chords, bassline, lead melody) are generated, validated for key/scale, and exported as standard .mid files so they can be imported or dragged onto target synth instruments without overwriting unrelated channels."
+      ],
+      "critic_summary": "HEALTHY",
+      "created_at": "2026-11-12T14:30:32.593173+00:00"
+    }
+  ]
+}

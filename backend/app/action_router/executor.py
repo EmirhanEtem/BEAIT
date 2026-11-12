@@ -242,21 +242,21 @@ class ActionExecutor:
             }
 
         elif atype == ActionType.SET_MIXER_VOLUME:
-            track = int(params.get("track", 0))
-            val = float(params.get("value", 0.8))
+            track = int(params.get("track", params.get("track_index", 0)))
+            val = float(params.get("value", params.get("volume", 0.8)))
             unit = params.get("unit", "normalized")
             res = await self.fl_adapter.async_set_mixer_volume_verified(track, val, unit=unit)
             return {"verified": res.verified, "volume": res.after, "before": res.before}
 
         elif atype == ActionType.SET_MIXER_PAN:
-            track = int(params.get("track", 0))
-            val = float(params.get("value", 0.0))
+            track = int(params.get("track", params.get("track_index", 0)))
+            val = float(params.get("value", params.get("pan", 0.0)))
             res = await self.fl_adapter.async_set_mixer_pan_verified(track, val)
             return {"verified": res.verified, "pan": res.after, "before": res.before}
 
         elif atype == ActionType.SET_MIXER_MUTE:
-            track = int(params.get("track", 0))
-            state = bool(params.get("state", False))
+            track = int(params.get("track", params.get("track_index", 0)))
+            state = bool(params.get("state", params.get("mute", False)))
             res = await self.fl_adapter.async_set_mixer_mute_verified(track, state)
             return {"verified": res.verified, "mute": res.after, "before": res.before}
 
@@ -264,6 +264,18 @@ class ActionExecutor:
             name = params.get("name", "PATTERN")
             res = await self.fl_adapter.async_create_pattern(name)
             return {"verified": res.verified, "index": res.index, "name": res.name}
+
+        elif atype == ActionType.CLONE_PATTERN:
+            src = int(params.get("src", 1))
+            name = str(params.get("name", "Pattern_Clone"))
+            res = await self.fl_adapter.async_clone_pattern(src, name)
+            return {"verified": res.get("verified", True), "index": res.get("index", src), "name": res.get("name", name)}
+
+        elif atype == ActionType.ADD_ARRANGEMENT_MARKER:
+            bar = int(params.get("bar", 1))
+            name = str(params.get("name", "Section"))
+            res = await self.fl_adapter.async_add_arrangement_marker(bar, name)
+            return {"verified": res.get("verified", True), "bar": res.get("bar", bar), "name": res.get("name", name)}
 
         elif atype == ActionType.SET_PLAY_STATE:
             state = params.get("state", "toggle").lower()
@@ -344,11 +356,18 @@ class ActionExecutor:
         # Provide matching response fields for verification
         if action.action_type == ActionType.SET_TEMPO:
             return {"bpm": action.parameters.get("bpm", 128.0)}
+        elif action.action_type == ActionType.SET_STEP_GRID:
+            steps = action.parameters.get("steps", [])
+            return {"verified": True, "steps": steps, "after_steps": steps, "channel": action.parameters.get("channel", 0)}
+        elif action.action_type in (ActionType.CREATE_PATTERN, ActionType.CLONE_PATTERN):
+            return {"verified": True, "index": 1, "name": action.parameters.get("name", "Pattern")}
+        elif action.action_type == ActionType.ADD_ARRANGEMENT_MARKER:
+            return {"verified": True, "bar": action.parameters.get("bar", 1), "name": action.parameters.get("name", "Marker")}
         elif action.action_type in (ActionType.CREATE_MIDI_PATTERN, ActionType.CREATE_DRUM_PATTERN):
             return {"pattern": {"length_bars": 4, "notes_count": 16}}
         elif action.action_type in (ActionType.SET_MIXER_VOLUME, ActionType.SET_MIXER_PAN):
             param = "volume" if action.action_type == ActionType.SET_MIXER_VOLUME else "pan"
-            return {param: action.parameters.get(param, 0.8)}
+            return {param: action.parameters.get(param, action.parameters.get("value", 0.8))}
         elif action.action_type == ActionType.EXPORT_AUDIO:
             return {"output_path": action.parameters.get("output_path", "test.wav")}
 

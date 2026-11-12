@@ -1,5 +1,16 @@
 # Changelog
 
+## Phase 8 — Producer Orchestrator ve Uçtan Uca İş Akışı (End-to-End Workflow) (2026-11-12)
+
+### Oluşturulan
+- `backend/app/orchestration/producer.py`: Gelişmiş `ProducerOrchestrator` ve `UserMusicalIntent` — Türkçe ve İngilizce doğal dil niyet ayrıştırıcı (`parse_musical_intent`), uzman ajan koordinasyonu (`ComposerAgent`, `RhythmAgent`, `SoundDesignerAgent`, `ArrangerAgent`, `CriticAgent`), sınırlı yürütme döngüsü (`max_actions_per_plan = 32`) ve dürüst sınırlama raporlaması (`remaining_limitations`).
+- `backend/app/model_providers/`: `ModelProviderAdapter`, `ProviderConfig` ve `PromptDisclosureEnvelope` — API anahtarı maskeleme (`redact_secrets`), şeffaf bağlam bildirimi (`disclosed_fields`) ve varsayılan ses/dosya yükleme engeli (`allow_audio_upload=False`).
+- `backend/app/project_memory/`: `ProjectMemoryManager`, `UserMusicalPreferences` ve `TaskSummaryRecord` — kalıcı kullanıcı tercihleri ve denetlenebilir görev/oturum özetleri.
+- `backend/scripts/demo_phase8_e2e.py`: Gerçek FL Studio 2025 üzerinde 128 BPM A minor Melodic Techno uçtan uca canlı demo scripti (11/11 eylem canlı doğrulandı ve başlangıç durumu %100 geri yüklendi).
+- `docs/user-guide.md`: Kapsamlı kullanıcı kılavuzu.
+- `backend/tests/test_phase8_e2e.py`: 5 yeni uçtan uca orkestrasyon, gizlilik ve proje belleği testi; toplam 102 test %100 başarıyla geçti.
+- `docs/phase-reports/phase-8-report.md`: Phase 8 tamamlama raporu.
+
 ## Phase 7 — Ses Dışa Aktarımı ve Analizi (Audio Rendering and Analysis) (2026-11-12)
 
 ### Oluşturulan

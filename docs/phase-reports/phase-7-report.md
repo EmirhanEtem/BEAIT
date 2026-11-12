@@ -64,3 +64,4 @@ Tüm Depo Testleri (Phase 1..7): 97 passed, 9 deselected (%100 Başarı)
 | Çıktı dosyası doğrulanır ve başarısız render'lar dürüstçe raporlanır | ✅ | Eksik, 44 byte altı veya bozuk WAV başlıkları `VERIFICATION_FAILED` olarak yakalanır |
 | Analiz sonuçları tekrarlanabilirdir (reproducible) | ✅ | Aynı dosya üzerinde ardışık `analyze_file` çağrıları birebir aynı `MeasuredAudioFacts` ve `HeuristicAudioObservations` üretir |
 | Asistan ölçülen gerçekler ile öznel önerileri birbirinden ayırır | ✅ | `CriticFeedbackReport` içinde `measured_findings` (`MEASURED_FACT`) ve `subjective_recommendations` ayrı tutulur ve revizyonlar `requires_approval=True` ile kapılanır |
+

@@ -257,3 +257,4 @@ class TestCriticAgent:
             assert feedback.render_valid is False
             assert feedback.overall_health == "RENDER_FAILED"
             assert feedback.measured_findings[0].code == "RENDER_INVALID"
+
