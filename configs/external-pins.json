@@ -1,0 +1,19 @@
+{
+  "_comment": "Pinned external dependencies. external/ is not committed; recreate with scripts/fetch_external.ps1.",
+  "flstudio-mcp": {
+    "url": "https://github.com/rosasynthesiz/flstudio-mcp.git",
+    "commit": "30ad1121fb511c7524d3b38261506a2e72a96595",
+    "date": "2026-11-04",
+    "license": "MIT",
+    "local_modifications": "none"
+  },
+  "Hybrid-Computer-Use": {
+    "url": "https://github.com/microsoft/Hybrid-Computer-Use.git",
+    "commit": "697d3fbda04cb322915866bab1aad79c726a61e3",
+    "date": "2026-11-02",
+    "version": "1.0.0",
+    "license": "MIT",
+    "local_modifications": "none (built with dotnet publish + go build directly; see docs/gui-automation.md)"
+  }
+}
+

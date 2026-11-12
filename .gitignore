@@ -84,6 +84,10 @@ $RECYCLE.BIN/
 snapshots/
 backups/
 
+# ===== External dependencies (pinned in configs/external-pins.json) =====
+external/*/
+
 # ===== Audio renders (user-specific) =====
 renders/
 exports/
+

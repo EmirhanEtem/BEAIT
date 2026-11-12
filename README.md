@@ -54,3 +54,4 @@ Detaylı kurulum talimatları için: [docs/setup-windows.md](docs/setup-windows.
 ## Lisans
 
 Bu proje özel kullanım içindir. Harici bağımlılıkların lisansları `docs/` altında belgelenecektir.
+

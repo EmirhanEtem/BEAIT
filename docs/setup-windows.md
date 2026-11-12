@@ -136,3 +136,4 @@ git --version             # 2.40+
 - `.env` dosyası **asla** git'e commit edilmemelidir
 - API anahtarları mümkünse Windows Credential Manager'da saklanmalıdır
 - Ekran görüntüleri ve loglar kişisel veri içerebilir, paylaşırken dikkatli olun
+

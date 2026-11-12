@@ -20,3 +20,4 @@
 - Rust/Cargo: **kurulu değil** (Tauri 2 için gerekli)
 - pnpm: **kurulu değil** (önerilir)
 - loopMIDI: **kurulu değil** (MCP entegrasyonu için gerekebilir)
+

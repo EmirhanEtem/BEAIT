@@ -238,3 +238,4 @@ Phase 1'e geçmeden önce kullanıcıdan yapması istenen işlemler:
 1. **Rust kurulum zamanlaması:** Phase 1'de mi yoksa Phase 2 öncesinde mi kurulmalı? (Öneri: şimdi kurulabilir, Phase 2'de kesinlikle gerekli)
 2. **loopMIDI:** Hemen mi kurulmalı, yoksa Phase 1 testleri sonucuna göre mi? (Öneri: Phase 1'de ihtiyaç analizi yapılsın)
 3. **Python sürümü:** 3.14 ile devam mı, yoksa uyumluluk için 3.12 venv mi? (Öneri: 3.14 ile başla, sorun çıkarsa 3.12'ye geç)
+
