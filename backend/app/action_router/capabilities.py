@@ -35,10 +35,13 @@ class CapabilityRegistry:
             ActionType.READ_CHANNELS,
             ActionType.READ_MIXER_TRACKS,
             ActionType.READ_PATTERNS,
+            ActionType.READ_STEP_GRID,
             ActionType.SET_TEMPO,
             ActionType.SET_PLAY_STATE,
             ActionType.CREATE_MIDI_PATTERN,
             ActionType.CREATE_DRUM_PATTERN,
+            ActionType.SET_STEP_GRID,
+            ActionType.CREATE_PATTERN,
             ActionType.SET_CHANNEL_VOLUME,
             ActionType.SET_CHANNEL_PAN,
             ActionType.SET_MIXER_VOLUME,
@@ -53,6 +56,7 @@ class CapabilityRegistry:
             ActionType.READ_CHANNELS,
             ActionType.READ_MIXER_TRACKS,
             ActionType.READ_PATTERNS,
+            ActionType.READ_STEP_GRID,
         }
         self.register_route(
             RouteCapabilities(
@@ -129,4 +133,52 @@ class CapabilityRegistry:
             if caps.can_handle(action_type):
                 capable.append(name)
         return capable
+
+    async def discover_fl_capabilities(self, adapter) -> RouteCapabilities:
+        """Probe the live FL Studio connection and dynamically update capabilities."""
+        fl_route = self._routes.get("FL_MCP")
+        if not fl_route:
+            fl_route = RouteCapabilities(route_name="FL_MCP")
+            self.register_route(fl_route)
+
+        try:
+            status = await adapter.async_check_health()
+            if not status.connected or not status.fl_studio_alive:
+                fl_route.is_active = False
+                return fl_route
+
+            fl_route.is_active = True
+            # Verified operational set
+            fl_route.supported_actions = {
+                ActionType.READ_TEMPO,
+                ActionType.READ_PLAY_STATE,
+                ActionType.READ_PROJECT_STATE,
+                ActionType.READ_CHANNELS,
+                ActionType.READ_MIXER_TRACKS,
+                ActionType.READ_PATTERNS,
+                ActionType.READ_STEP_GRID,
+                ActionType.SET_TEMPO,
+                ActionType.SET_PLAY_STATE,
+                ActionType.SET_STEP_GRID,
+                ActionType.CREATE_DRUM_PATTERN,
+                ActionType.CREATE_PATTERN,
+                ActionType.SET_MIXER_VOLUME,
+                ActionType.SET_MIXER_PAN,
+                ActionType.SET_MIXER_MUTE,
+            }
+            fl_route.read_only_actions = {
+                ActionType.READ_TEMPO,
+                ActionType.READ_PLAY_STATE,
+                ActionType.READ_PROJECT_STATE,
+                ActionType.READ_CHANNELS,
+                ActionType.READ_MIXER_TRACKS,
+                ActionType.READ_PATTERNS,
+                ActionType.READ_STEP_GRID,
+            }
+            fl_route.write_actions = fl_route.supported_actions - fl_route.read_only_actions
+        except Exception:
+            fl_route.is_active = False
+
+        return fl_route
+
 

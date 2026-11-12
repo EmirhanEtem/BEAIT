@@ -42,8 +42,17 @@ class VerificationEngine:
             elif action.action_type in (ActionType.SET_MIXER_VOLUME, ActionType.SET_MIXER_PAN):
                 return self._verify_mixer(action, post)
 
+            elif action.action_type == ActionType.SET_MIXER_MUTE:
+                return self._verify_mute(action, post)
+
             elif action.action_type in (ActionType.CREATE_MIDI_PATTERN, ActionType.CREATE_DRUM_PATTERN):
                 return self._verify_pattern(action, post)
+
+            elif action.action_type == ActionType.SET_STEP_GRID:
+                return self._verify_step_grid(action, post)
+
+            elif action.action_type == ActionType.CREATE_PATTERN:
+                return self._verify_create_pattern(action, post)
 
             elif action.action_type == ActionType.EXPORT_AUDIO:
                 return self._verify_export(action, post)
@@ -131,6 +140,70 @@ class VerificationEngine:
             detail=f"Mixer {param_name}: requested {requested}, got {actual}",
             needs_recovery=not passed,
             error=None if passed else "mixer_param_mismatch",
+        )
+
+    def _verify_mute(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        requested = bool(action.parameters.get("state", False))
+        actual = post.get("mute")
+        if actual is None:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail="Mixer mute state could not be read back.",
+                needs_recovery=True,
+                error="missing_mixer_mute",
+            )
+        passed = (bool(actual) == requested)
+        return VerificationOutcome(
+            success=passed,
+            verified=passed,
+            detail=f"Mixer mute: requested {requested}, got {actual}",
+            needs_recovery=not passed,
+            error=None if passed else "mixer_mute_mismatch",
+        )
+
+    def _verify_step_grid(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        # Check if direct verified result was returned
+        if post.get("verified") is True:
+            return VerificationOutcome(
+                success=True,
+                verified=True,
+                detail=f"Step grid verified on channel {action.parameters.get('channel')}: steps {post.get('after_steps')}",
+            )
+        
+        expected_steps = action.parameters.get("steps", [])
+        actual_steps = post.get("steps") or post.get("after_steps")
+        if actual_steps is None:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail="Channel step grid could not be read back.",
+                needs_recovery=True,
+                error="missing_step_grid",
+            )
+
+        passed = sorted(actual_steps) == sorted(expected_steps)
+        return VerificationOutcome(
+            success=passed,
+            verified=passed,
+            detail=f"Step grid: expected {expected_steps}, got {actual_steps}",
+            needs_recovery=not passed,
+            error=None if passed else "step_grid_mismatch",
+        )
+
+    def _verify_create_pattern(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("verified") is True or (isinstance(post.get("index"), int) and post.get("index") >= 1):
+            return VerificationOutcome(
+                success=True,
+                verified=True,
+                detail=f"Created pattern '{action.parameters.get('name')}' at index {post.get('index')}",
+            )
+        return VerificationOutcome(
+            success=False,
+            verified=False,
+            detail="Pattern creation failed or returned invalid index.",
+            needs_recovery=True,
+            error="pattern_create_failed",
         )
 
     def _verify_pattern(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
+import uuid
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -23,6 +24,9 @@ class ActionType(str, Enum):
     SET_PLAY_STATE = "SET_PLAY_STATE"
     CREATE_MIDI_PATTERN = "CREATE_MIDI_PATTERN"
     CREATE_DRUM_PATTERN = "CREATE_DRUM_PATTERN"
+    SET_STEP_GRID = "SET_STEP_GRID"
+    READ_STEP_GRID = "READ_STEP_GRID"
+    CREATE_PATTERN = "CREATE_PATTERN"
     SET_CHANNEL_VOLUME = "SET_CHANNEL_VOLUME"
     SET_CHANNEL_PAN = "SET_CHANNEL_PAN"
     SET_MIXER_VOLUME = "SET_MIXER_VOLUME"
@@ -120,10 +124,11 @@ def is_valid_transition(current: ActionLifecycleState, next_state: ActionLifecyc
 
 class ActionDefinition(BaseModel):
     """Complete specification of a typed, verifiable action."""
-    action_id: str
+    action_id: str = Field(default_factory=lambda: f"act_{uuid.uuid4().hex[:10]}")
     task_id: str
     action_type: ActionType
     target: str = ""
+    description: str = ""
     parameters: Dict[str, Any] = Field(default_factory=dict)
     execution_route: str = "FL_MCP"  # FL_MCP, GUI_AUTOMATION, LOCAL_SERVICE, MOCK
     risk_level: ActionRiskLevel = ActionRiskLevel.LOW

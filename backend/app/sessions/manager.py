@@ -11,6 +11,8 @@ from fastapi import WebSocket
 
 from ..integrations.computer_use import GUIAutomationAdapter
 from ..integrations.fl_studio import FLStudioAdapter, TransportType
+from ..orchestration.producer import ActionPlan, ProducerOrchestrator
+from ..schemas.actions import ActionLifecycleState
 from ..schemas import (
     ActionItem,
     ActionStatus,
@@ -33,6 +35,7 @@ class TaskExecutionManager:
 
     def __init__(self):
         self._tasks: Dict[str, TaskResponse] = {}
+        self._plans: Dict[str, ActionPlan] = {}
         self._active_task_id: Optional[str] = None
         self._cancel_events: Dict[str, asyncio.Event] = {}
         self._active_connections: Set[WebSocket] = set()
@@ -40,6 +43,7 @@ class TaskExecutionManager:
         
         self.fl_adapter = FLStudioAdapter(transport=TransportType.TCP)
         self.hcu_adapter = GUIAutomationAdapter()
+        self.orchestrator = ProducerOrchestrator(fl_adapter=self.fl_adapter)
         
         # Latest cached states
         self.cached_connection = ConnectionState()
@@ -225,111 +229,106 @@ class TaskExecutionManager:
     # -- Internal Task Execution ---------------------------------------------
 
     def _build_plan_for_task(self, task_id: str, prompt: str, is_mock: bool) -> List[ActionItem]:
-        route = ExecutionRoute.MOCK if is_mock else ExecutionRoute.FL_MCP
-        return [
-            ActionItem(
-                action_id=f"{task_id}_act_1",
-                task_id=task_id,
-                name="Read Project Context",
-                description="Read BPM, channels and transport status from FL Studio",
-                target="FL Studio Session",
-                route=ExecutionRoute.FL_MCP if self.cached_connection.fl_studio_alive else ExecutionRoute.MOCK,
-                status=ActionStatus.PLANNED,
-            ),
-            ActionItem(
-                action_id=f"{task_id}_act_2",
-                task_id=task_id,
-                name="Create Drum Pattern",
-                description="Generate 4-on-the-floor kick and percussion rhythm",
-                target="Channel Rack",
-                route=route,
-                status=ActionStatus.PLANNED,
-            ),
-            ActionItem(
-                action_id=f"{task_id}_act_3",
-                task_id=task_id,
-                name="Generate MIDI Melody",
-                description="Compose melodic techno motif in A Minor",
-                target="Piano Roll",
-                route=route,
-                status=ActionStatus.PLANNED,
-            ),
-            ActionItem(
-                action_id=f"{task_id}_act_4",
-                task_id=task_id,
-                name="Adjust Mixer Level",
-                description="Verify headroom and trim channel gain",
-                target="Mixer Insert 1",
-                route=route,
-                status=ActionStatus.PLANNED,
-            ),
-            ActionItem(
-                action_id=f"{task_id}_act_5",
-                task_id=task_id,
-                name="Verify Resulting State",
-                description="Read back project state and verify note events",
-                target="Verification Engine",
-                route=ExecutionRoute.LOCAL_SERVICE,
-                status=ActionStatus.PLANNED,
-            ),
-        ]
+        plan = self.orchestrator.create_plan(prompt, task_id=task_id)
+        self._plans[task_id] = plan
+
+        items: List[ActionItem] = []
+        for a in plan.actions:
+            if is_mock:
+                route = ExecutionRoute.MOCK
+            elif a.execution_route == "FL_MCP":
+                route = ExecutionRoute.FL_MCP
+            elif a.execution_route == "GUI_AUTOMATION":
+                route = ExecutionRoute.GUI_AUTOMATION
+            else:
+                route = ExecutionRoute.LOCAL_SERVICE
+
+            items.append(
+                ActionItem(
+                    action_id=a.action_id,
+                    task_id=task_id,
+                    name=a.description or a.action_type.value,
+                    description=a.description or a.action_type.value,
+                    target="FL Studio Session",
+                    route=route,
+                    status=ActionStatus.PLANNED,
+                )
+            )
+        return items
 
     async def _run_task(self, task_id: str):
         task = self._tasks[task_id]
         self._active_task_id = task_id
         cancel_event = self._cancel_events[task_id]
+        plan = self._plans.get(task_id)
 
         task.status = TaskStatus.RUNNING
         await self.broadcast(AppEvent(type=EventType.TASK_UPDATE, payload=task.model_dump(mode="json")))
         await self.add_chat_message("assistant", f"Starting plan for: '{task.prompt}'", task_id=task_id)
 
         try:
-            for index, action in enumerate(task.actions):
+            plan_actions = plan.actions if plan else []
+            for index, action_item in enumerate(task.actions):
                 if cancel_event.is_set():
                     break
 
-                action.status = ActionStatus.RUNNING
-                action.started_at = datetime.now(timezone.utc)
-                await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action.model_dump(mode="json")))
+                action_item.status = ActionStatus.RUNNING
+                action_item.started_at = datetime.now(timezone.utc)
+                await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action_item.model_dump(mode="json")))
 
                 # Cursor simulation for UI representation (clearly marked is_real_desktop=False)
                 marker = CursorMarker(
                     active=True,
                     x=200 + index * 120,
                     y=150 + index * 60,
-                    label=action.name,
+                    label=action_item.name,
                     is_real_desktop=False,
                 )
                 self.cached_cursor = marker
                 await self.broadcast(AppEvent(type=EventType.CURSOR_MARKER, payload=marker.model_dump()))
 
-                # Execute action step
-                if action.route == ExecutionRoute.FL_MCP and self.cached_connection.fl_studio_alive:
-                    try:
-                        tempo = await self.fl_adapter.async_get_tempo()
-                        action.verification_detail = f"Live BPM read: {tempo}"
-                        action.verified = True
-                    except Exception as e:
-                        action.error = str(e)
-                        action.verified = False
+                act_def = plan_actions[index] if index < len(plan_actions) else None
+                if act_def:
+                    executed = await self.orchestrator.executor.execute_action(
+                        act_def,
+                        cancel_event=cancel_event,
+                        prefer_mock=task.is_mock,
+                    )
+                    action_item.verified = executed.verified
+                    action_item.verification_detail = executed.verification_detail
+                    action_item.error = executed.error
+                    exec_status = executed.status
                 else:
-                    # Simulated step with cancellation awareness
-                    for _ in range(10):
-                        if cancel_event.is_set():
-                            break
-                        await asyncio.sleep(0.1)
-                    action.verification_detail = f"Mock verified: {action.name}"
-                    action.verified = True
+                    await asyncio.sleep(0.1)
+                    action_item.verified = True
+                    action_item.verification_detail = "Executed default step"
+                    exec_status = ActionLifecycleState.SUCCEEDED
 
                 if cancel_event.is_set():
-                    action.status = ActionStatus.CANCELLED
-                    action.finished_at = datetime.now(timezone.utc)
-                    await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action.model_dump(mode="json")))
+                    action_item.status = ActionStatus.CANCELLED
+                    action_item.finished_at = datetime.now(timezone.utc)
+                    await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action_item.model_dump(mode="json")))
                     break
 
-                action.status = ActionStatus.SUCCEEDED
-                action.finished_at = datetime.now(timezone.utc)
-                await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action.model_dump(mode="json")))
+                if exec_status == ActionLifecycleState.SUCCEEDED:
+                    action_item.status = ActionStatus.SUCCEEDED
+                elif exec_status == ActionLifecycleState.AWAITING_APPROVAL:
+                    action_item.status = ActionStatus.PLANNED
+                    task.status = TaskStatus.QUEUED
+                    await self.add_chat_message(
+                        "assistant",
+                        f"Action '{action_item.name}' requires explicit approval before executing.",
+                        task_id=task_id,
+                    )
+                    break
+                else:
+                    action_item.status = ActionStatus.FAILED
+                    task.status = TaskStatus.FAILED
+                    task.error = action_item.error
+                    break
+
+                action_item.finished_at = datetime.now(timezone.utc)
+                await self.broadcast(AppEvent(type=EventType.ACTION_UPDATE, payload=action_item.model_dump(mode="json")))
 
             # Clear cursor
             self.cached_cursor = CursorMarker(active=False, is_real_desktop=False)
@@ -338,7 +337,7 @@ class TaskExecutionManager:
             if cancel_event.is_set():
                 task.status = TaskStatus.CANCELLED
                 task.result_summary = "Task was cancelled by user."
-            else:
+            elif task.status != TaskStatus.FAILED:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.now(timezone.utc)
                 task.result_summary = "Plan executed successfully."
@@ -347,6 +346,7 @@ class TaskExecutionManager:
                     f"Plan completed! All {len(task.actions)} actions finished successfully.",
                     task_id=task_id,
                 )
+                await self.refresh_project_context()
 
         except Exception as e:
             logger.error("Error executing task %s: %s", task_id, e, exc_info=True)
@@ -358,4 +358,5 @@ class TaskExecutionManager:
         finally:
             self._active_task_id = None
             await self.broadcast(AppEvent(type=EventType.TASK_UPDATE, payload=task.model_dump(mode="json")))
+
 

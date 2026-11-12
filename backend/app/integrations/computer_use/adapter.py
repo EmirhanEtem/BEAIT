@@ -221,6 +221,22 @@ class GUIAutomationAdapter:
         return ToolResult(is_error=bool(resp.get("isError")), text="\n".join(texts),
                           images=images, raw=resp)
 
+    def find_app_by_name(self, name: str) -> Optional[dict]:
+        """Find a running top-level window by case-insensitive name match."""
+        apps_res = self.ax_apps()
+        if apps_res.is_error:
+            return None
+        apps = apps_res.json() or []
+        for app in apps:
+            app_name = str(app.get("name", "")).lower()
+            title = str(app.get("title", "")).lower()
+            if name.lower() in app_name or name.lower() in title:
+                return app
+        return None
+
+    def is_app_running(self, name: str) -> bool:
+        return self.find_app_by_name(name) is not None
+
     # -- async wrappers ------------------------------------------------------
 
     async def async_check_availability(self) -> HCUStatus:
@@ -231,6 +247,12 @@ class GUIAutomationAdapter:
 
     async def async_ax_apps(self) -> ToolResult:
         return await asyncio.to_thread(self.ax_apps)
+
+    async def async_find_app_by_name(self, name: str) -> Optional[dict]:
+        return await asyncio.to_thread(self.find_app_by_name, name)
+
+    async def async_is_app_running(self, name: str) -> bool:
+        return await asyncio.to_thread(self.is_app_running, name)
 
     # -- JSON-RPC internals --------------------------------------------------
 

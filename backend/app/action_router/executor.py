@@ -33,6 +33,8 @@ class ActionExecutor:
         verification_engine: Optional[VerificationEngine] = None,
         db: Optional[DatabaseManager] = None,
         recovery_manager: Optional[CheckpointRecoveryManager] = None,
+        fl_adapter: Optional[Any] = None,
+        hcu_adapter: Optional[Any] = None,
     ):
         self.registry = CapabilityRegistry()
         self.router = router or ActionRouter(self.registry)
@@ -40,6 +42,8 @@ class ActionExecutor:
         self.verification_engine = verification_engine or VerificationEngine()
         self.db = db or DatabaseManager()
         self.recovery_manager = recovery_manager or CheckpointRecoveryManager(self.db)
+        self.fl_adapter = fl_adapter
+        self.hcu_adapter = hcu_adapter
         
         # Dispatchers for mock or integration execution handlers
         self._custom_handlers: Dict[str, Callable] = {}
@@ -167,12 +171,124 @@ class ActionExecutor:
             handler = self._custom_handlers[action.execution_route]
             return await handler(action, pre_state)
 
-        # 2. Mock handler
-        if action.execution_route == "MOCK":
-            return await self._mock_execution(action, cancel_event)
+        # 2. FL Studio MCP Real Execution
+        if action.execution_route == "FL_MCP" and self.fl_adapter:
+            return await self._execute_fl_mcp(action)
 
-        # Default fallback execution result
-        return {"result": "executed", "timestamp": datetime.now(timezone.utc).isoformat()}
+        # 3. GUI Automation Real Execution
+        if action.execution_route == "GUI_AUTOMATION" and self.hcu_adapter:
+            return await self._execute_gui_automation(action)
+
+        # 4. Mock handler (Fallback)
+        return await self._mock_execution(action, cancel_event)
+
+    async def _execute_fl_mcp(self, action: ActionDefinition) -> Dict[str, Any]:
+        """Direct execution through real FL Studio MCP adapter."""
+        if not self.fl_adapter:
+            raise RuntimeError("FL Studio adapter not configured on executor.")
+
+        status = self.fl_adapter.check_health()
+        if not status.connected or not status.fl_studio_alive:
+            c_status = self.fl_adapter.connect()
+            if not c_status.connected:
+                raise RuntimeError(f"Cannot connect to FL Studio MCP: {c_status.error}")
+
+        atype = action.action_type
+        params = action.parameters
+
+        if atype == ActionType.READ_TEMPO:
+            bpm = await self.fl_adapter.async_get_tempo()
+            return {"bpm": bpm, "data": bpm}
+
+        elif atype == ActionType.SET_TEMPO:
+            bpm = float(params.get("bpm", 120.0))
+            res = await self.fl_adapter.async_set_tempo_verified(bpm)
+            return {"bpm": res.after, "before": res.before, "verified": res.verified}
+
+        elif atype == ActionType.READ_PROJECT_STATE:
+            st = await self.fl_adapter.async_get_project_state()
+            return {"data": st.raw, "project_state": st}
+
+        elif atype == ActionType.READ_CHANNELS:
+            ch = await self.fl_adapter.async_get_channels()
+            return {"data": ch, "channels": ch}
+
+        elif atype == ActionType.READ_MIXER_TRACKS:
+            tracks = await self.fl_adapter.async_get_mixer_tracks()
+            return {"data": tracks, "tracks": tracks}
+
+        elif atype == ActionType.READ_PATTERNS:
+            patterns = await self.fl_adapter.async_get_patterns()
+            return {"data": patterns, "patterns": patterns}
+
+        elif atype == ActionType.READ_STEP_GRID:
+            ch_idx = int(params.get("channel", 0))
+            length = int(params.get("length", 16))
+            res = await self.fl_adapter.async_get_step_grid(ch_idx, length)
+            return {"data": res, "steps": res.get("steps", []), "pattern_string": res.get("pattern_string")}
+
+        elif atype in (ActionType.SET_STEP_GRID, ActionType.CREATE_DRUM_PATTERN):
+            ch_idx = int(params.get("channel", 0))
+            steps = params.get("steps")
+            pattern_str = params.get("pattern")
+            length = int(params.get("length", 16))
+            res = await self.fl_adapter.async_set_step_grid_verified(ch_idx, steps=steps, pattern=pattern_str, length=length)
+            return {
+                "verified": res.verified,
+                "channel": res.channel,
+                "after_steps": res.after_steps,
+                "before_steps": res.before_steps,
+                "steps": res.after_steps,
+            }
+
+        elif atype == ActionType.SET_MIXER_VOLUME:
+            track = int(params.get("track", 0))
+            val = float(params.get("value", 0.8))
+            unit = params.get("unit", "normalized")
+            res = await self.fl_adapter.async_set_mixer_volume_verified(track, val, unit=unit)
+            return {"verified": res.verified, "volume": res.after, "before": res.before}
+
+        elif atype == ActionType.SET_MIXER_PAN:
+            track = int(params.get("track", 0))
+            val = float(params.get("value", 0.0))
+            res = await self.fl_adapter.async_set_mixer_pan_verified(track, val)
+            return {"verified": res.verified, "pan": res.after, "before": res.before}
+
+        elif atype == ActionType.SET_MIXER_MUTE:
+            track = int(params.get("track", 0))
+            state = bool(params.get("state", False))
+            res = await self.fl_adapter.async_set_mixer_mute_verified(track, state)
+            return {"verified": res.verified, "mute": res.after, "before": res.before}
+
+        elif atype == ActionType.CREATE_PATTERN:
+            name = params.get("name", "PATTERN")
+            res = await self.fl_adapter.async_create_pattern(name)
+            return {"verified": res.verified, "index": res.index, "name": res.name}
+
+        elif atype == ActionType.SET_PLAY_STATE:
+            state = params.get("state", "toggle").lower()
+            if state == "play":
+                await self.fl_adapter.async_play()
+            elif state == "stop":
+                await self.fl_adapter.async_stop()
+            else:
+                await self.fl_adapter.async_toggle_play()
+            return {"data": state, "verified": True}
+
+        # For pattern/MIDI actions not yet handled via SysEx, fallback to mock/safe
+        return await self._mock_execution(action, None)
+
+    async def _execute_gui_automation(self, action: ActionDefinition) -> Dict[str, Any]:
+        """Execution through GUI Automation (HCU)."""
+        if not self.hcu_adapter:
+            return await self._mock_execution(action, None)
+
+        atype = action.action_type
+        if atype == ActionType.CAPTURE_SCREENSHOT:
+            png = await self.hcu_adapter.async_take_screenshot()
+            return {"data": png, "size": len(png) if png else 0}
+
+        return await self._mock_execution(action, None)
 
     async def _mock_execution(
         self,

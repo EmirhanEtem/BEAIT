@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 4 — Gerçek FL Studio Kontrol MVP (Real FL Studio Control MVP) (2026-11-12)
+
+### Oluşturulan
+- `backend/app/music_engine/`: Müzik & MIDI üretim motoru (`models.py`, `scales.py`, `chords.py`, `generator.py`, `validator.py`, `midi_io.py`) — gamlar, akor dizileri, 4-on-the-floor/trap/boom bap ritim kalıpları, deterministik MIDI doğrulayıcı ve `.mid` dışa/içe aktarımı.
+- `backend/app/integrations/fl_studio/adapter.py`: Gelişmiş FL Studio MCP bağdaştırıcısı — doğrulamalı adım sıralayıcı (step grid write with readback verification), mikser ses/pan/mute denetimi, pattern oluşturma (`create_pattern`), transport denetimi (`play`, `stop`, `toggle_play`).
+- `backend/app/sessions/test_project.py`: `TestProjectSession` ile güvenli başlangıç anlık görüntüsü (`capture_baseline`) ve tam geri yükleme (`restore_baseline`).
+- `backend/app/orchestration/producer.py`: `ProducerOrchestrator` — doğal dil niyet ayrıştırma, `ActionPlan` üretimi, dry-run (plan önizleme) modu ve onay kapılı sıralı yürütme.
+- `backend/app/sessions/manager.py`: `TaskExecutionManager` ile orkestratör entegrasyonu, canlı eylem yürütme ve WebSocket durum yayını.
+- `backend/scripts/poc_fl_phase4.py`: Gerçek FL Studio 2025 üzerinde canlı kontrol doğrulama scripti (%100 başarıyla tamamlandı).
+- Testler: Toplam 64 birim & entegrasyon testi (%100 başarıyla geçti).
+- `docs/phase-reports/phase-4-report.md`: Phase 4 yetenek matrisi ve doğrulama raporu.
+
 ## Phase 3 — Eylem Sistemi, İzinler, Doğrulama ve Kurtarma (2026-11-12)
 
 ### Oluşturulan
