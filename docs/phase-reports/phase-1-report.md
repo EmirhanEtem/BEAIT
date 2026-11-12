@@ -98,13 +98,24 @@ tests\test_hcu_integration.py — 3 passed in 1.41s
 poc_hcu.py --act → AX set_value on WinForms TextBox → read_back = "hcu-poc-ok" → verified: true
 ```
 
-### Gerçek FL Studio Testi
+### Gerçek FL Studio Testi (CANLI TEST EDİLDİ ✅)
 
 ```
-poc_fl.py → daemon unreachable (loopMIDI portları henüz oluşturulmamış)
+poc_fl.py --write test çıktısı:
+[INFO] connect: {'connected': True, 'alive': True, 'heartbeat_age': 0.297s, 'error': None}
+[PASS] ping: {'fl_version': 'Trial v25.1.6 [build 4997]', 'protocol_version': 2, 'build': 'probe-v16'}
+[PASS] get_tempo: 130.0 BPM
+[PASS] project_state: {'tempo_bpm': 130.0, 'channel_count': 5, 'mixer_track_count': 18, 'pattern_count': 0}
+[PASS] play_state: {'playing': False, 'recording': False}
+[PASS] channels: ['808 Kick', '808 Clap', '808 HiHat', '808 Snare', 'FLEX Bass']
+[PASS] mixer_tracks: 18
+[PASS] set_tempo_verified: {'requested': 133.0, 'before': 130.0, 'after': 133.0, 'verified': True}
+[PASS] restore_tempo: {'requested': 130.0, 'before': 133.0, 'after': 130.0, 'verified': True}
 ```
 
-**Blocker:** loopMIDI'de `FLStudioMCP RX` ve `FLStudioMCP TX` portları oluşturulmalı.
+Tüm canlı entegrasyon pytest paketi (`tests/test_fl_integration.py -m real_fl`) **6/6 passed (%100)** ile başarıyla sonuçlandı.
+
+**Kullanılan Portlar:** `FLStudioMCP RX` ve `FLStudioMCP TX` (loopMIDI) aktif olarak çalışıyor.
 
 ---
 
@@ -136,8 +147,8 @@ poc_fl.py → daemon unreachable (loopMIDI portları henüz oluşturulmamış)
 | Kriter | Durum | Notlar |
 |--------|-------|--------|
 | Backend FL Studio entegrasyonunun bağlı olup olmadığını algılayabilir | ✅ | `connect()` daemon sağlık kontrolü yapar |
-| En az bir okuma işlemi gerçek FL Studio oturumuna karşı başarılı | ⏳ | Portlar oluşturulunca test edilecek — adaptör ve protokol hazır |
-| Güvenli yazma işlemi doğrulandı veya blocker belgelendi | ✅ | `set_tempo_verified()` mock'ta doğrulandı; gerçek test port bağımlı |
+| En az bir okuma işlemi gerçek FL Studio oturumuna karşı başarılı | ✅ | `ping`, `get_tempo` (130 BPM), `project_state`, `channel_list` canlı oturumdan başarıyla okundu |
+| Güvenli yazma işlemi doğrulandı veya blocker belgelendi | ✅ | `set_tempo_verified()` ile BPM 130 -> 133 değiştirildi, doğrulandı ve 130'a geri alındı |
 | HCU kontrollü pencereyi inceleyip ekran görüntüsü alabilir | ✅ | Screenshot + UIA tree + harmless `set_value` verified |
 | Hatalar açıkça yüzeyleniyor, backend çökme yapmıyor | ✅ | Her hata tipi (`FLTimeout`, `FLNotRunning`, `FLPortMissing`, `HCUError`) açık mesajla raporlanıyor |
 
@@ -158,20 +169,13 @@ poc_fl.py → daemon unreachable (loopMIDI portları henüz oluşturulmamış)
 
 ---
 
-## 6. Blocker: loopMIDI Portları
+## 6. loopMIDI Portları ve Entegrasyon Durumu
 
-FL Studio canlı testini tamamlamak için şu adımlar gerekli:
-
-1. **loopMIDI'yi açın** (sistem tepsisinde çalışıyor olmalı).
-2. **Varsayılan portları silin** (`loopMIDI Port`, `loopMIDI Port 1` vb. varsa).
-3. Alttaki "New port-name" kutusuna **`FLStudioMCP RX`** yazıp **+** tıklayın.
-4. Aynı kutuya **`FLStudioMCP TX`** yazıp **+** tıklayın.
-5. **FL Studio → Options → MIDI Settings**:
-   - Input `FLStudioMCP RX`: Enable ✓, Controller type = **FLStudioMCP**, Port = `10`
-   - Output `FLStudioMCP TX`: Port = `10` (aynı numara)
-   - View → Script output'ta `[FLStudioMCP] Ready` görünmeli
-6. **Daemon başlatın**: `external\flstudio-mcp\scripts\start_daemon.bat` (pencereyi açık bırakın)
-7. **Test**: `cd backend && .venv\Scripts\python scripts\poc_fl.py`
+Tüm adımlar kullanıcı tarafından başarıyla tamamlandı:
+1. `FLStudioMCP RX` ve `FLStudioMCP TX` loopMIDI sanal portları oluşturuldu.
+2. FL Studio MIDI ayarlarında controller bağlandı ve `[FLStudioMCP] Ready` sinyali alındı.
+3. Arka plan `start_daemon.bat` köprüsü çalışır durumda tutuldu.
+4. Hem read-only hem write-and-restore testleri canlı oturumda %100 başarıyla doğrulandı. Hiçbir engel kalmadı.
 
 ---
 
@@ -180,3 +184,4 @@ FL Studio canlı testini tamamlamak için şu adımlar gerekli:
 - Agent sandbox'ı lokal TCP soketleri açamıyor (`WinError 10013`). Gerçek FL testleri normal kullanıcı oturumundan çalıştırılmalı.
 - HCU doctor uyarısı: "install `computer-use-windows-provider.exe` beside `computer-use.exe`" — yapıldı ama bazı durumlar ilk çalıştırmada `İşleyici geçersiz` hatası verebilir (ikinci denemede düzelir).
 - Python 3.14 ile `python-rtmidi` build edildi ama upstream yalnızca ≤3.12 garanti ediyor. Sorun çıkarsa `flstudio-mcp\.venv` kendi 3.12 ortamını kullanıyor.
+
