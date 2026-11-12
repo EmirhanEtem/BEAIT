@@ -89,6 +89,7 @@ class ActionPlan:
     arrangement: Optional[ArrangementPlan] = None
     sound_design: Optional[SoundDesignPlan] = None
     prompt_disclosure: Optional[PromptDisclosureEnvelope] = None
+    llm_explanation: Optional[str] = None
     remaining_limitations: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -118,6 +119,7 @@ class ProducerOrchestrator:
         self,
         executor: Optional[ActionExecutor] = None,
         fl_adapter: Optional[FLStudioAdapter] = None,
+        hcu_adapter: Optional[Any] = None,
         db: Optional[DatabaseManager] = None,
         event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         memory: Optional[ProjectMemoryManager] = None,
@@ -126,7 +128,8 @@ class ProducerOrchestrator:
     ):
         self.db = db or DatabaseManager()
         self.fl_adapter = fl_adapter
-        self.executor = executor or ActionExecutor(db=self.db, fl_adapter=fl_adapter)
+        self.hcu_adapter = hcu_adapter
+        self.executor = executor or ActionExecutor(db=self.db, fl_adapter=fl_adapter, hcu_adapter=hcu_adapter)
         self.event_callback = event_callback
         self.memory = memory or ProjectMemoryManager()
         self.model_provider = model_provider or ModelProviderAdapter()
@@ -138,6 +141,7 @@ class ProducerOrchestrator:
         self.sound_designer = SoundDesignerAgent()
         self.arranger = ArrangerAgent()
         self.critic = CriticAgent()
+        self._last_prompt: Optional[str] = None
 
     def parse_musical_intent(self, prompt: str) -> UserMusicalIntent:
         """Parse English or Turkish natural-language production requests into UserMusicalIntent."""
@@ -157,13 +161,13 @@ class ProducerOrchestrator:
         genre: Optional[str] = None
         if "melodic techno" in lower or "melodik tekno" in lower:
             genre = "melodic_techno"
-        elif "deep house" in lower or "house" in lower:
+        elif any(g in lower for g in ("deep house", "tech house", "house", "edm", "dance")):
             genre = "deep_house"
-        elif "trap" in lower:
+        elif any(g in lower for g in ("phonk", "drift", "cowbell", "trap", "drill", "808")):
             genre = "trap_dark"
-        elif "boom bap" in lower or "boombap" in lower:
+        elif any(g in lower for g in ("boom bap", "boombap", "slow", "chill", "lofi", "lo-fi", "hip hop", "hip-hop", "rap")):
             genre = "boom_bap_chill"
-        elif "techno" in lower or "tekno" in lower:
+        elif any(g in lower for g in ("techno", "tekno", "trance", "rave")):
             genre = "melodic_techno"
 
         # 3. Parse Key & Scale (e.g. "A minor", "F# harmonic minor", "C dorian", "A minör")
@@ -216,6 +220,21 @@ class ProducerOrchestrator:
         if ("arrangement" in lower or "aranjman" in lower) and not sections:
             sections = ["Intro", "Build", "Drop", "Breakdown", "Outro"]
 
+        # 5b. Expand general song/beat production prompts in Turkish/English
+        is_melody_only = ("motif" in lower or "piyano" in lower) and len(elements) == 1 and "lead_melody" in elements
+        is_song_creation = any(
+            w in lower for w in ("şarkı", "parça", "müzik", "phonk", "yap", "oluştur", "hazırla", "üret")
+        )
+        if is_song_creation and not is_melody_only:
+            if genre is None:
+                genre = "melodic_techno"
+            if len(elements) < 2:
+                for el in ("kick", "percussion", "bass", "lead_melody"):
+                    if el not in elements:
+                        elements.append(el)
+            if not sections:
+                sections = ["Intro", "Drop"]
+
         # 6. Mood keywords
         moods: List[str] = []
         for m_kw in ("dark", "karanlık", "energetic", "enerjik", "atmospheric", "atmosferik", "chill", "warm"):
@@ -246,6 +265,13 @@ class ProducerOrchestrator:
         p_id = f"plan_{uuid.uuid4().hex[:8]}"
         clean = prompt.strip().lower()
 
+        # Support "tekrar yap" / "yeniden yap" by reusing the last meaningful prompt
+        if clean in ("tekrar yap", "yeniden yap", "aynısını yap", "tekrarla", "tekrar") and self._last_prompt:
+            prompt = self._last_prompt
+            clean = prompt.strip().lower()
+        else:
+            self._last_prompt = prompt
+
         intent = self.parse_musical_intent(prompt)
         disclosure = self.model_provider.build_context_prompt(
             user_prompt=prompt,
@@ -259,9 +285,227 @@ class ProducerOrchestrator:
         arrangement: Optional[ArrangementPlan] = None
         sound_design: Optional[SoundDesignPlan] = None
         limitations: List[str] = []
+        llm_explanation: Optional[str] = None
 
-        # CASE A: Full multi-step production request (e.g. Phase 8 benchmark prompt)
-        if intent.is_full_production_request:
+        # Try OpenAI GPT-4o live producer planning when API key is configured in .env
+        llm_spec: Optional[Dict[str, Any]] = None
+        if not dry_run and midi_export_dir is None:
+            llm_spec = self.model_provider.generate_music_plan(
+                user_prompt=prompt,
+                project_context=project_context,
+                user_preferences=asdict(self.memory.preferences),
+            )
+
+        if llm_spec:
+            llm_explanation = str(llm_spec.get("ai_response", "")).strip() or None
+            if llm_spec.get("intent_type") == "chat_only":
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.READ_PROJECT_STATE,
+                        description="Read current FL Studio project state",
+                        parameters={},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
+            else:
+                eff_genre = str(llm_spec.get("genre") or intent.genre or self.memory.preferences.preferred_genre)
+                eff_bpm = float(llm_spec.get("tempo_bpm") or intent.tempo_bpm or self.memory.preferences.preferred_bpm)
+                eff_key = str(llm_spec.get("key") or intent.key or self.memory.preferences.preferred_root)
+                eff_scale = str(llm_spec.get("scale") or intent.scale or self.memory.preferences.preferred_scale)
+
+                intent.genre = eff_genre
+                intent.tempo_bpm = eff_bpm
+                intent.key = eff_key
+                intent.scale = eff_scale
+
+                # 1. Read project context
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.READ_PROJECT_STATE,
+                        description="Read current FL Studio project state",
+                        parameters={},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.READ_CHANNELS,
+                        description="Read FL Studio Channel Rack channels",
+                        parameters={},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
+
+                # 2. Set Tempo
+                if llm_spec.get("tempo_bpm") is not None:
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_TEMPO,
+                            description=f"[AI] Set project tempo to {eff_bpm} BPM ({eff_genre})",
+                            parameters={"bpm": float(eff_bpm), "tolerance": 0.05},
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+
+                # 3. Create new active Pattern for this production
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.CREATE_PATTERN,
+                        description=f"[AI] Create pattern '{eff_key}_{eff_scale}_Beat'",
+                        parameters={"name": f"{eff_key}_{eff_scale}_Beat"},
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+
+                # 3b. Channel Sound / Volume / Pan shaping (Sound Design)
+                raw_ch_mix = llm_spec.get("channel_mix") or []
+                if isinstance(raw_ch_mix, list) and raw_ch_mix:
+                    for cm in raw_ch_mix:
+                        if not isinstance(cm, dict):
+                            continue
+                        ch_idx = int(cm.get("channel", 0))
+                        ch_name = str(cm.get("name", f"Channel {ch_idx}"))
+                        if "volume" in cm and cm["volume"] is not None:
+                            ch_vol = max(0.0, min(1.0, float(cm["volume"])))
+                            actions.append(
+                                ActionDefinition(
+                                    task_id=t_id,
+                                    action_type=ActionType.SET_CHANNEL_VOLUME,
+                                    description=f"[AI] Set {ch_name} (Ch {ch_idx}) volume to {int(ch_vol * 100)}%",
+                                    parameters={"channel": ch_idx, "value": ch_vol, "unit": "normalized"},
+                                    risk_level=ActionRiskLevel.MEDIUM,
+                                )
+                            )
+                        if "pan" in cm and cm["pan"] is not None and abs(float(cm["pan"])) > 0.01:
+                            ch_pan = max(-1.0, min(1.0, float(cm["pan"])))
+                            actions.append(
+                                ActionDefinition(
+                                    task_id=t_id,
+                                    action_type=ActionType.SET_CHANNEL_PAN,
+                                    description=f"[AI] Set {ch_name} (Ch {ch_idx}) stereo pan to {ch_pan:+.2f}",
+                                    parameters={"channel": ch_idx, "value": ch_pan},
+                                    risk_level=ActionRiskLevel.MEDIUM,
+                                )
+                            )
+
+                # 4. Custom Drum & Percussion Channels
+                raw_drums = llm_spec.get("drum_channels") or []
+                if isinstance(raw_drums, list) and raw_drums:
+                    for ch_obj in raw_drums:
+                        if not isinstance(ch_obj, dict):
+                            continue
+                        ch_idx = int(ch_obj.get("channel", 0))
+                        ch_name = str(ch_obj.get("name", f"Channel {ch_idx}"))
+                        raw_steps = ch_obj.get("steps") or []
+                        steps = sorted({int(s) for s in raw_steps if isinstance(s, (int, float)) and 0 <= int(s) < 16})
+                        pattern_str = "".join("x" if i in steps else "." for i in range(16))
+                        actions.append(
+                            ActionDefinition(
+                                task_id=t_id,
+                                action_type=ActionType.SET_STEP_GRID,
+                                description=f"[AI] Set {ch_name} (Ch {ch_idx}) step grid: {pattern_str}",
+                                parameters={
+                                    "channel": ch_idx,
+                                    "steps": steps,
+                                    "pattern": pattern_str,
+                                    "length": 16,
+                                },
+                                risk_level=ActionRiskLevel.MEDIUM,
+                            )
+                        )
+
+                # 5. Load Real Musical Instrument (Live Mouse & GUI) + Apply Melody Notes to Piano Roll
+                inst_name = str(llm_spec.get("instrument_name") or "FL Keys").strip()
+                raw_notes = llm_spec.get("melody_notes") or []
+                valid_notes = []
+                if isinstance(raw_notes, list):
+                    for n in raw_notes:
+                        if isinstance(n, dict) and "pitch" in n:
+                            valid_notes.append({
+                                "pitch": max(24, min(108, int(n.get("pitch", 60)))),
+                                "time_bars": max(0.0, float(n.get("time_bars", 0.0))),
+                                "length_bars": max(0.0625, float(n.get("length_bars", 0.25))),
+                                "velocity": max(0.1, min(1.0, float(n.get("velocity", 0.85)))),
+                            })
+                if valid_notes:
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.LOAD_PLUGIN_PRESET,
+                            description=f"[Canlı Mouse & GUI] Channel Rack'e '{inst_name}' enstrümanını ekle ve seç",
+                            parameters={
+                                "plugin_name": inst_name,
+                                "instrument_name": inst_name,
+                                "preset_name": "Default",
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.CREATE_MIDI_PATTERN,
+                            description=f"[AI] Apply {eff_key} {eff_scale} melody ({len(valid_notes)} notes) to '{inst_name}' Piano Roll",
+                            parameters={
+                                "notes": valid_notes,
+                                "instrument_name": inst_name,
+                                "bars": 4,
+                                "mode": "replace",
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+
+                # 5b. Paint Created Patterns onto Main Song Playlist (Ana Şarkı) via Live Mouse Drag
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.ADD_ARRANGEMENT_MARKER,
+                        description="[Canlı Mouse & GUI] Pattern'leri Playlist (Ana Şarkı) kanallarına boya ve diz",
+                        parameters={
+                            "bar": 1,
+                            "name": f"{eff_key}_{eff_scale}_Song",
+                            "paint_playlist": True,
+                            "bars": 8,
+                        },
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+
+                # 6. Mixer Volume adjustment
+                mix_vol = llm_spec.get("mixer_volume")
+                if isinstance(mix_vol, (int, float)):
+                    vol_val = max(0.05, min(1.0, float(mix_vol)))
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_MIXER_VOLUME,
+                            description=f"[AI] Set Master Mixer volume to {int(vol_val * 100)}%",
+                            parameters={"track": 0, "value": vol_val, "unit": "normalized"},
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+
+                # 7. Transport Playback
+                play_st = llm_spec.get("play_state")
+                if play_st in ("play", "stop"):
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_PLAY_STATE,
+                            description=f"[AI] Set FL Studio transport playback to '{play_st}'",
+                            parameters={"state": play_st},
+                            risk_level=ActionRiskLevel.LOW,
+                        )
+                    )
+
+        # CASE A: Full multi-step production request (Deterministic fallback & offline tests)
+        elif intent.is_full_production_request:
             eff_genre = intent.genre or self.memory.preferences.preferred_genre
             eff_bpm = intent.tempo_bpm or self.memory.preferences.preferred_bpm
             eff_key = intent.key or self.memory.preferences.preferred_root
@@ -338,13 +582,62 @@ class ProducerOrchestrator:
                     "validated for key/scale, and exported as standard .mid files so they can be imported or "
                     "dragged onto target synth instruments without overwriting unrelated channels."
                 )
+                if not dry_run and midi_export_dir is None:
+                    target_notes = [n.model_dump() for n in composition.melody.notes]
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.CREATE_MIDI_PATTERN,
+                            description=f"Apply {composition.root} {composition.scale} melody notes ({len(target_notes)} notes) to FL Studio Piano Roll",
+                            parameters={
+                                "notes": target_notes,
+                                "bars": 4,
+                                "mode": "replace",
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
 
             # 6. Sound Design & Mixer balance recommendations
             sound_design = self.sound_designer.create_sound_plan(task_id=t_id, genre=eff_genre)
+            if any(w in clean for w in ("yüksek ses", "yuksek ses", "sesini aç", "loud", "boost")):
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.SET_MIXER_VOLUME,
+                        description="Boost Master mixer track volume to 92% (high volume requested)",
+                        parameters={"track": 0, "value": 0.92, "unit": "normalized"},
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+            elif any(w in clean for w in ("kısık", "kisik", "düşük ses", "sesini kıs", "quiet")):
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.SET_MIXER_VOLUME,
+                        description="Lower Master mixer track volume to 55%",
+                        parameters={"track": 0, "value": 0.55, "unit": "normalized"},
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+
+            if not dry_run and midi_export_dir is None:
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.SET_PLAY_STATE,
+                        description="Start FL Studio transport playback to audition the generated beat",
+                        parameters={"state": "play"},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
 
         # CASE B: Single-operation commands (backward compatible with Phase 4 unit tests)
         else:
-            bpm_match = re.search(r"(?:set|change)?\s*(?:tempo|bpm)\s*(?:to|=)?\s*(\d+(?:\.\d+)?)", clean)
+            bpm_match = (
+                re.search(r"(?:set|change)?\s*(?:tempo|bpm)\s*(?:to|=)?\s*(\d+(?:\.\d+)?)", clean)
+                or re.search(r"(\d{2,3}(?:\.\d+)?)\s*bpm", clean)
+            )
             if bpm_match:
                 bpm_val = float(bpm_match.group(1))
                 actions.append(
@@ -431,6 +724,72 @@ class ProducerOrchestrator:
                     )
                 )
 
+            elif any(k in clean for k in ("melodi", "melody", "lead", "motif", "akor", "chord", "bassline", "piyano", "piano")):
+                bar_match = re.search(r"(\d+)\s*bar", clean)
+                bars = int(bar_match.group(1)) if bar_match else 4
+                eff_genre = intent.genre or self.memory.preferences.preferred_genre
+                eff_bpm = intent.tempo_bpm or self.memory.preferences.preferred_bpm
+                eff_key = intent.key or self.memory.preferences.preferred_root
+                eff_scale = intent.scale or self.memory.preferences.preferred_scale
+
+                composition = self.composer.compose(
+                    genre=eff_genre,
+                    root=eff_key,
+                    scale=eff_scale,
+                    tempo_bpm=eff_bpm,
+                    bars=bars,
+                    humanize=True,
+                    export_dir=midi_export_dir,
+                )
+                target_notes = [n.model_dump() for n in composition.melody.notes]
+                motif_steps = sorted({int(round((n.time_bars % 1.0) * 16)) % 16 for n in composition.melody.notes}) or [0, 3, 6, 8, 10, 12, 14]
+                pattern_str = "".join("x" if i in motif_steps else "." for i in range(16))
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.READ_PROJECT_STATE,
+                        description="Read current FL Studio project state",
+                        parameters={},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.SET_STEP_GRID,
+                        description=f"Activate rhythmic motif steps on Channel 0: {pattern_str}",
+                        parameters={
+                            "channel": 0,
+                            "steps": motif_steps,
+                            "pattern": pattern_str,
+                            "length": 16,
+                        },
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.CREATE_MIDI_PATTERN,
+                        description=f"Compose & apply {bars}-bar {composition.root} {composition.scale} melody motif ({len(target_notes)} notes) to Piano Roll",
+                        parameters={
+                            "notes": target_notes,
+                            "bars": bars,
+                            "mode": "replace",
+                        },
+                        risk_level=ActionRiskLevel.MEDIUM,
+                    )
+                )
+                actions.append(
+                    ActionDefinition(
+                        task_id=t_id,
+                        action_type=ActionType.SET_PLAY_STATE,
+                        description="Start FL Studio transport playback to audition motif",
+                        parameters={"state": "play"},
+                        risk_level=ActionRiskLevel.LOW,
+                    )
+                )
+
             if not actions:
                 actions.append(
                     ActionDefinition(
@@ -478,6 +837,7 @@ class ProducerOrchestrator:
             arrangement=arrangement,
             sound_design=sound_design,
             prompt_disclosure=disclosure,
+            llm_explanation=llm_explanation,
             remaining_limitations=limitations,
         )
 

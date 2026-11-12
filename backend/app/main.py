@@ -89,6 +89,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/health", response_model=ConnectionState)
 async def get_health():
+    if not manager.cached_connection.fl_studio_alive or not manager.cached_connection.hcu_available:
+        await manager.refresh_system_health()
     return manager.cached_connection
 
 

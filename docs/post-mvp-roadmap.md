@@ -32,3 +32,4 @@ Bu belge, kararlı Windows MVP temelinin üzerine inşa edilecek **v1.1 – v2.0
 
 - **Mevcut MVP Durumu:** `ModelProviderAdapter` gizlilik kontrollerini (`redact_secrets`, `PromptDisclosureEnvelope`, `allow_audio_upload=False`) ve deterministik kural tabanlı planlamayı desteklemektedir.
 - **v1.4 Hedefi:** Yerel **Ollama** (`llama3.3`, `qwen2.5-coder`) ve bulut sağlayıcıları için JSON-Schema zorlamalı (`structured outputs`) canlı akış bağdaştırıcılarının eklenmesi; tüm LLM çıktılarının yine mevcut `ActionType` izin listesinden ve `VerificationEngine` doğrulamasından geçirilmesi.
+

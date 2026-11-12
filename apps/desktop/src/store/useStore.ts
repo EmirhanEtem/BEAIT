@@ -112,8 +112,8 @@ interface AppStore {
   updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
 }
 
-const BACKEND_URL = "http://127.0.0.1:8765";
-const WS_URL = "ws://127.0.0.1:8765/ws";
+export const BACKEND_URL = "http://127.0.0.1:8000";
+export const WS_URL = "ws://127.0.0.1:8000/ws";
 
 export const useStore = create<AppStore>((set, get) => ({
   activeTab: "main",
@@ -183,6 +183,8 @@ export const useStore = create<AppStore>((set, get) => ({
           set((state) => ({
             connection: { ...state.connection, backend_online: true },
           }));
+          get().refreshHealth();
+          get().refreshContext();
         };
 
         ws.onmessage = (event) => {

@@ -1,0 +1,11 @@
+{
+  "venvPath": "backend",
+  "venv": ".venv",
+  "extraPaths": [
+    "backend",
+    "external/flstudio-mcp/src"
+  ],
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "basic"
+}
+

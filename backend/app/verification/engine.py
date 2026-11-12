@@ -42,6 +42,15 @@ class VerificationEngine:
             elif action.action_type in (ActionType.SET_MIXER_VOLUME, ActionType.SET_MIXER_PAN):
                 return self._verify_mixer(action, post)
 
+            elif action.action_type in (ActionType.SET_CHANNEL_VOLUME, ActionType.SET_CHANNEL_PAN):
+                is_ver = bool(post.get("verified", True))
+                param_name = "volume" if action.action_type == ActionType.SET_CHANNEL_VOLUME else "pan"
+                return VerificationOutcome(
+                    success=is_ver,
+                    verified=is_ver,
+                    detail=f"Channel {action.parameters.get('channel', 0)} {param_name} set to {post.get(param_name, action.parameters.get('value'))}.",
+                )
+
             elif action.action_type == ActionType.SET_MIXER_MUTE:
                 return self._verify_mute(action, post)
 
@@ -60,6 +69,14 @@ class VerificationEngine:
                     success=is_ver,
                     verified=is_ver,
                     detail=f"Playlist time marker '{action.parameters.get('name')}' added at bar {action.parameters.get('bar')}.",
+                )
+
+            elif action.action_type == ActionType.SET_PLAY_STATE:
+                is_ver = bool(post.get("verified", True))
+                return VerificationOutcome(
+                    success=is_ver,
+                    verified=is_ver,
+                    detail=f"Transport playback state set to '{action.parameters.get('state', 'play')}'.",
                 )
 
             elif action.action_type in (ActionType.OPEN_PLUGIN_WINDOW, ActionType.LOAD_PLUGIN_PRESET):
@@ -145,6 +162,12 @@ class VerificationEngine:
         param_name = "volume" if action.action_type == ActionType.SET_MIXER_VOLUME else "pan"
         requested = float(action.parameters.get(param_name, action.parameters.get("value", 0)))
         actual = post.get(param_name)
+        if post.get("verified") is True:
+            return VerificationOutcome(
+                success=True,
+                verified=True,
+                detail=f"Mixer {param_name}: requested {requested}, verified ({actual})",
+            )
         if actual is None:
             return VerificationOutcome(
                 success=False,

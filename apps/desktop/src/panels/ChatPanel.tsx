@@ -4,7 +4,7 @@ import { Send, Sparkles, Terminal, Square, CheckCircle2, Clock, AlertTriangle } 
 
 export const ChatPanel: React.FC = () => {
   const [prompt, setPrompt] = useState("");
-  const [isMock, setIsMock] = useState(true);
+  const [isMock, setIsMock] = useState(false);
   const { messages, activeTask, isExecuting, submitTask, stopActiveTask, projectContext } = useStore();
 
   const handleSubmit = (e: React.FormEvent) => {

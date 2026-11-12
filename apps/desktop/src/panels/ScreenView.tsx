@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, BACKEND_URL } from "../store/useStore";
 import { CursorMarkerOverlay } from "../components/CursorMarker";
 import { Eye, Camera, RefreshCw, AlertCircle, Monitor } from "lucide-react";
 
@@ -11,7 +11,7 @@ export const ScreenView: React.FC = () => {
   const handleCaptureScreen = async () => {
     setIsCapturing(true);
     try {
-      const res = await fetch("http://127.0.0.1:8765/api/screen/capture", { method: "POST" });
+      const res = await fetch(`${BACKEND_URL}/api/screen/capture`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {

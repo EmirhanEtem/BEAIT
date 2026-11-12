@@ -43,7 +43,7 @@ class TaskExecutionManager:
         
         self.fl_adapter = FLStudioAdapter(transport=TransportType.TCP)
         self.hcu_adapter = GUIAutomationAdapter()
-        self.orchestrator = ProducerOrchestrator(fl_adapter=self.fl_adapter)
+        self.orchestrator = ProducerOrchestrator(fl_adapter=self.fl_adapter, hcu_adapter=self.hcu_adapter)
         
         # Latest cached states
         self.cached_connection = ConnectionState()
@@ -57,7 +57,11 @@ class TaskExecutionManager:
         await websocket.accept()
         self._active_connections.add(websocket)
         logger.info("WebSocket client connected. Total clients: %d", len(self._active_connections))
-        
+
+        if not self.cached_connection.fl_studio_alive or not self.cached_connection.hcu_available:
+            await self.refresh_system_health()
+            await self.refresh_project_context()
+
         # Send initial state snapshot on connect
         await self._send_to_client(websocket, AppEvent(
             type=EventType.CONNECTION_STATUS,
@@ -98,6 +102,8 @@ class TaskExecutionManager:
     async def refresh_system_health(self) -> ConnectionState:
         """Probe FL Studio and HCU and update status."""
         fl_status = await self.fl_adapter.async_check_health()
+        if not fl_status.connected:
+            fl_status = await self.fl_adapter.async_connect()
         hcu_status = await self.hcu_adapter.async_check_availability()
         
         state = ConnectionState(
@@ -185,8 +191,8 @@ class TaskExecutionManager:
         # Add user chat message
         await self.add_chat_message("user", prompt, task_id=task_id)
 
-        # Plan initial actions
-        task.actions = self._build_plan_for_task(task_id, prompt, is_mock)
+        # Plan initial actions (in thread so OpenAI HTTP call never blocks event loop)
+        task.actions = await asyncio.to_thread(self._build_plan_for_task, task_id, prompt, is_mock)
 
         # Broadcast initial task state
         await self.broadcast(AppEvent(
@@ -229,7 +235,15 @@ class TaskExecutionManager:
     # -- Internal Task Execution ---------------------------------------------
 
     def _build_plan_for_task(self, task_id: str, prompt: str, is_mock: bool) -> List[ActionItem]:
-        plan = self.orchestrator.create_plan(prompt, task_id=task_id)
+        ctx_dict = None
+        if self.cached_project.connected:
+            ctx_dict = {
+                "bpm": self.cached_project.tempo,
+                "playing": self.cached_project.playing,
+                "channel_count": len(self.cached_project.channels),
+                "channels": self.cached_project.channels,
+            }
+        plan = self.orchestrator.create_plan(prompt, task_id=task_id, project_context=ctx_dict)
         self._plans[task_id] = plan
 
         items: List[ActionItem] = []
@@ -264,7 +278,14 @@ class TaskExecutionManager:
 
         task.status = TaskStatus.RUNNING
         await self.broadcast(AppEvent(type=EventType.TASK_UPDATE, payload=task.model_dump(mode="json")))
-        await self.add_chat_message("assistant", f"Starting plan for: '{task.prompt}'", task_id=task_id)
+        if plan and plan.llm_explanation:
+            await self.add_chat_message(
+                "assistant",
+                f"🤖 AI Prodüktör:\n{plan.llm_explanation}",
+                task_id=task_id,
+            )
+        else:
+            await self.add_chat_message("assistant", f"Starting plan for: '{task.prompt}'", task_id=task_id)
 
         try:
             plan_actions = plan.actions if plan else []
@@ -341,24 +362,25 @@ class TaskExecutionManager:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.now(timezone.utc)
                 task.result_summary = "Plan executed successfully."
-                summary_lines = [
-                    f"Plan tamamlandı! Toplam {len(task.actions)} eylem başarıyla yürütüldü ve doğrulandı."
-                ]
-                if plan and plan.composition:
-                    summary_lines.append(
-                        f"• Besteci (Composer): {plan.composition.root} {plan.composition.scale} tonunda {plan.composition.bars} barlık akor, bas ve melodi üretildi."
-                    )
-                if plan and plan.arrangement:
-                    sec_names = " -> ".join(f"{s.name} ({s.bars} bar)" for s in plan.arrangement.sections)
-                    summary_lines.append(f"• Aranjör (Arranger): {sec_names} (Toplam {plan.arrangement.total_bars} bar).")
-                if plan and plan.remaining_limitations:
-                    summary_lines.append(f"• Not / Sınırlamalar: {' '.join(plan.remaining_limitations)}")
+                if not (plan and plan.llm_explanation and len(task.actions) <= 1):
+                    summary_lines = [
+                        f"Plan tamamlandı! Toplam {len(task.actions)} eylem başarıyla yürütüldü ve doğrulandı."
+                    ]
+                    if plan and plan.composition:
+                        summary_lines.append(
+                            f"• Besteci (Composer): {plan.composition.root} {plan.composition.scale} tonunda {plan.composition.bars} barlık akor, bas ve melodi üretildi."
+                        )
+                    if plan and plan.arrangement:
+                        sec_names = " -> ".join(f"{s.name} ({s.bars} bar)" for s in plan.arrangement.sections)
+                        summary_lines.append(f"• Aranjör (Arranger): {sec_names} (Toplam {plan.arrangement.total_bars} bar).")
+                    if plan and plan.remaining_limitations:
+                        summary_lines.append(f"• Not / Sınırlamalar: {' '.join(plan.remaining_limitations)}")
 
-                await self.add_chat_message(
-                    "assistant",
-                    "\n".join(summary_lines),
-                    task_id=task_id,
-                )
+                    await self.add_chat_message(
+                        "assistant",
+                        "\n".join(summary_lines),
+                        task_id=task_id,
+                    )
                 await self.refresh_project_context()
 
         except Exception as e:
