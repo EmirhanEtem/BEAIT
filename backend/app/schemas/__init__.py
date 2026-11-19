@@ -21,7 +21,14 @@ from .events import (
     TaskStatus,
 )
 from .settings import AppSettings
-from .tasks import SessionInfo, TaskCreateRequest, TaskResponse
+from .tasks import (
+    ChatSession,
+    ChatSessionCreateRequest,
+    ChatSessionUpdateRequest,
+    SessionInfo,
+    TaskCreateRequest,
+    TaskResponse,
+)
 
 __all__ = [
     "ActionDefinition",
@@ -34,6 +41,9 @@ __all__ = [
     "ActionStatus",
     "AppEvent",
     "ChatMessage",
+    "ChatSession",
+    "ChatSessionCreateRequest",
+    "ChatSessionUpdateRequest",
     "ConnectionState",
     "CursorMarker",
     "EventType",

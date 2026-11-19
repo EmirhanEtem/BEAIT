@@ -39,6 +39,8 @@ from .midi_io import (
     export_midi_file,
     read_midi_file,
 )
+from .creative_engine import CreativeBeatEngine
+from .mix_master import MixMasterEngine
 
 __all__ = [
     "ScaleType",
@@ -66,4 +68,6 @@ __all__ = [
     "ValidationResult",
     "export_midi_file",
     "read_midi_file",
+    "CreativeBeatEngine",
+    "MixMasterEngine",
 ]

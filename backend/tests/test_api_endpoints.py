@@ -59,6 +59,35 @@ def test_get_and_update_settings(client):
     client.put("/api/settings", json=original)
 
 
+def test_provider_models_and_test_model_endpoints(client):
+    from unittest.mock import patch
+
+    res = client.get("/api/providers/models?provider=gemini&live=false")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["provider"] == "gemini"
+    assert data["default_model"] == "gemini-3.5-flash-lite"
+    assert any(m["id"] == "gemini-3.5-flash-lite" for m in data["models"])
+
+    with patch(
+        "app.model_providers.test_provider_model",
+        return_value={
+            "ok": True,
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "latency_ms": 420,
+            "error": None,
+            "suggested_model": None,
+        },
+    ):
+        probe_res = client.post(
+            "/api/providers/test-model",
+            json={"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+        )
+    assert probe_res.status_code == 200
+    assert probe_res.json()["ok"] is True
+
+
 def test_submit_task_and_list(client):
     req = {
         "prompt": "Create 128 BPM Techno Intro",

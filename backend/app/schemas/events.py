@@ -17,6 +17,7 @@ class EventType(str, Enum):
     CURSOR_MARKER = "cursor_marker"
     SCREEN_PREVIEW = "screen_preview"
     NOTIFICATION = "notification"
+    SESSION_UPDATED = "session_updated"
 
 
 class ActionStatus(str, Enum):
@@ -73,6 +74,7 @@ class CursorMarker(BaseModel):
 
 class ChatMessage(BaseModel):
     id: str
+    session_id: Optional[str] = None
     role: str  # user, assistant, system
     text: str
     task_id: Optional[str] = None

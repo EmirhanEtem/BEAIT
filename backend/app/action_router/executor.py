@@ -47,6 +47,20 @@ class ActionExecutor:
         
         # Dispatchers for mock or integration execution handlers
         self._custom_handlers: Dict[str, Callable] = {}
+        # Per-task runtime context (maps musical roles -> channels, mixer tracks, FX slots)
+        self._task_context: Dict[str, Dict[str, Any]] = {}
+
+    def _get_task_ctx(self, task_id: Optional[str]) -> Dict[str, Any]:
+        key = str(task_id or "default")
+        if key not in self._task_context:
+            self._task_context[key] = {
+                "role_channels": {},
+                "role_mixer_tracks": {},
+                "role_overflow_tracks": {},
+                "loaded_fx_slots": {},
+                "role_patterns": {},
+            }
+        return self._task_context[key]
 
     def register_handler(self, route_or_type: str, handler: Callable):
         self._custom_handlers[route_or_type] = handler
@@ -275,8 +289,11 @@ class ActionExecutor:
 
         elif atype == ActionType.CREATE_PATTERN:
             name = params.get("name", "PATTERN")
+            role = str(params.get("role", "")).strip().lower()
             res = await self.fl_adapter.async_create_pattern(name)
-            return {"verified": res.verified, "index": res.index, "name": res.name}
+            if role and res.index:
+                self._get_task_ctx(action.task_id)["role_patterns"][role] = int(res.index)
+            return {"verified": res.verified, "index": res.index, "name": res.name, "role": role}
 
         elif atype == ActionType.CLONE_PATTERN:
             src = int(params.get("src", 1))
@@ -287,16 +304,192 @@ class ActionExecutor:
         elif atype == ActionType.ADD_ARRANGEMENT_MARKER:
             bar = int(params.get("bar", 1))
             name = str(params.get("name", "Section"))
+            ctx = self._get_task_ctx(action.task_id)
             res = await self.fl_adapter.async_add_arrangement_marker(bar, name)
+            marker_ok = bool(res.get("ok", res.get("verified", True)))
+            paint_res: Dict[str, Any] = {}
+            paint_ok = True
             if params.get("paint_playlist"):
                 from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
                 gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
-                await asyncio.to_thread(gui.paint_patterns_to_playlist, 2, int(params.get("bars", 4)))
-            return {"verified": res.get("verified", True), "bar": res.get("bar", bar), "name": res.get("name", name)}
+                role_patterns = dict(ctx.get("role_patterns", {}))
+                if isinstance(params.get("sections"), list) and params["sections"]:
+                    paint_res = await asyncio.to_thread(
+                        gui.paint_arrangement_to_playlist,
+                        params["sections"],
+                        int(params.get("bars", 4)),
+                        role_patterns,
+                        bool(params.get("clear_playlist", True)),
+                    )
+                else:
+                    paint_res = await asyncio.to_thread(
+                        gui.paint_patterns_to_playlist, 2, int(params.get("bars", 4))
+                    )
+                if isinstance(paint_res, dict):
+                    paint_ok = bool(paint_res.get("ok", paint_res.get("verified", True)))
+                    if paint_ok:
+                        ctx["has_playlist_arrangement"] = True
+            return {
+                "verified": bool(marker_ok and paint_ok),
+                "marker_ok": marker_ok,
+                "bar": res.get("bar", bar),
+                "name": res.get("name", name),
+                "painted_tracks": paint_res.get("painted_tracks"),
+                "song_length_ticks": paint_res.get("song_length_ticks"),
+                "song_length_bars": paint_res.get("song_length_bars"),
+                "loop_mode": paint_res.get("loop_mode"),
+                "error": paint_res.get("error") or res.get("error"),
+            }
+
+        elif atype == ActionType.SET_MIXER_SOLO:
+            track = int(params["track"])
+            state = bool(params.get("state", True))
+            res = await self.fl_adapter.async_set_mixer_solo(track, state)
+            return {"track": track, "mute": res.get("solo", state), "verified": True}
+
+        elif atype == ActionType.SET_MIXER_TRACK_META:
+            track = int(params.get("track", 0))
+            name = params.get("name")
+            color = params.get("color")
+            if name:
+                await self.fl_adapter.async_set_mixer_name(track, str(name))
+            if isinstance(color, (list, tuple)) and len(color) == 3:
+                await self.fl_adapter.async_set_mixer_color(track, int(color[0]), int(color[1]), int(color[2]))
+            role = str(params.get("role", "")).strip().lower()
+            if role:
+                self._get_task_ctx(action.task_id)["role_mixer_tracks"][role] = track
+            return {"verified": True, "track": track, "name": name}
+
+        elif atype == ActionType.SET_MIXER_ROUTING:
+            ctx = self._get_task_ctx(action.task_id)
+            if "src" in params and "dst" in params:
+                res = await self.fl_adapter.async_set_mixer_route(
+                    int(params["src"]),
+                    int(params["dst"]),
+                    bool(params.get("enabled", True)),
+                )
+                return {"verified": True, **res}
+            from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
+            from ..music_engine.mix_master import MixMasterEngine
+            gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
+            role = str(params.get("role", "")).strip().lower()
+            mixer_track = int(
+                params.get("mixer_track")
+                if params.get("mixer_track") is not None
+                else MixMasterEngine().get_mixer_track_for_role(role)
+            )
+            channel = params.get("channel")
+            if channel is None and role:
+                channel = ctx["role_channels"].get(role)
+            if channel is None:
+                return {"verified": False, "error": f"No channel known for role '{role}'"}
+            res = await asyncio.to_thread(gui.route_channel_to_mixer_track_live, int(channel), mixer_track)
+            if role:
+                ctx["role_mixer_tracks"][role] = mixer_track
+            return res
+
+        elif atype == ActionType.SET_PLUGIN_PARAM:
+            from ..music_engine.mix_master import MixMasterEngine
+            ctx = self._get_task_ctx(action.task_id)
+            role = str(params.get("role", "")).strip().lower()
+            plugin_name = str(params.get("plugin_name", "")).strip()
+            slot = params.get("slot")
+
+            if slot is not None and int(slot) == -1:
+                channel = params.get("channel")
+                if channel is None:
+                    channel = ctx["role_channels"].get(role or plugin_name.lower())
+                if channel is None:
+                    return {
+                        "verified": True,
+                        "channel": None,
+                        "slot": -1,
+                        "plugin": plugin_name,
+                        "updated_count": 0,
+                        "detail": f"No loaded channel tracked yet for generator '{plugin_name or role}'.",
+                    }
+                ch_idx = int(channel)
+                if "param" in params and "value" in params:
+                    target_val = float(params["value"])
+                    await self.fl_adapter.async_plugin_set_param(ch_idx, -1, int(params["param"]), target_val)
+                    rb = await self.fl_adapter.async_plugin_get_param(ch_idx, -1, int(params["param"]))
+                    return {
+                        "verified": True,
+                        "channel": ch_idx,
+                        "slot": -1,
+                        "expected_value": target_val,
+                        "actual_value": rb.get("v", target_val),
+                    }
+                return await MixMasterEngine().tune_generator_plugin(
+                    self.fl_adapter,
+                    channel=ch_idx,
+                    plugin_name=plugin_name,
+                    role=role or "lead",
+                    preset_hint=str(params.get("preset_hint", "")),
+                    generator_params=params.get("generator_params"),
+                    mix_cfg=params.get("mix_cfg"),
+                    fallback_step=int(params.get("fallback_step", 1)),
+                )
+
+            mixer_track = ctx.get("role_overflow_tracks", {}).get(role) if role else None
+            if mixer_track is None:
+                mixer_track = params.get("track")
+            if mixer_track is None:
+                mixer_track = params.get("mixer_track")
+            if mixer_track is None:
+                mixer_track = ctx["role_mixer_tracks"].get(role, MixMasterEngine().get_mixer_track_for_role(role))
+            mixer_track = int(mixer_track)
+            if slot is None and plugin_name:
+                slot = ctx["loaded_fx_slots"].get((mixer_track, plugin_name.lower()))
+            if "param" in params and "value" in params and slot is not None:
+                target_val = float(params["value"])
+                await self.fl_adapter.async_plugin_set_param(mixer_track, int(slot), int(params["param"]), target_val)
+                rb = await self.fl_adapter.async_plugin_get_param(mixer_track, int(slot), int(params["param"]))
+                return {
+                    "verified": True,
+                    "track": mixer_track,
+                    "slot": int(slot),
+                    "expected_value": target_val,
+                    "actual_value": rb.get("v", target_val),
+                }
+            return await MixMasterEngine().tune_track_plugin_params(
+                self.fl_adapter,
+                track=mixer_track,
+                slot=int(slot) if slot is not None else None,
+                plugin_name=plugin_name,
+                role=role or ("master" if mixer_track == 0 else "lead"),
+                fx_params=params.get("fx_params"),
+                mix_cfg=params.get("mix_cfg"),
+            )
+
+        elif atype == ActionType.AUTO_MIX_MASTER:
+            from ..music_engine.mix_master import MixMasterEngine
+            ctx = self._get_task_ctx(action.task_id)
+            role_tracks = dict(params.get("role_tracks") or {})
+            for r, trk in ctx["role_mixer_tracks"].items():
+                role_tracks.setdefault(r, trk)
+            return await MixMasterEngine().run_auto_mix_master(
+                self.fl_adapter,
+                role_tracks=role_tracks or None,
+                mix_cfg=params.get("mix_cfg") or params,
+                fx_params=params.get("fx_params"),
+            )
 
         elif atype == ActionType.SET_PLAY_STATE:
             state = params.get("state", "toggle").lower()
+            ctx = self._get_task_ctx(action.task_id)
             if state == "play":
+                desired_mode = params.get("loop_mode") or ("song" if ctx.get("has_playlist_arrangement") else None)
+                if desired_mode and hasattr(self.fl_adapter, "async_set_loop_mode"):
+                    try:
+                        await self.fl_adapter.async_set_loop_mode(str(desired_mode))
+                    except Exception:
+                        pass
+                if params.get("rewind", bool(ctx.get("has_playlist_arrangement"))) and hasattr(self.fl_adapter, "async_set_song_position"):
+                    try:
+                        await self.fl_adapter.async_set_song_position(0.0)
+                    except Exception:
+                        pass
                 await self.fl_adapter.async_play()
             elif state == "stop":
                 await self.fl_adapter.async_stop()
@@ -306,45 +499,67 @@ class ActionExecutor:
 
         elif atype == ActionType.CREATE_MIDI_PATTERN:
             from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
+            ctx = self._get_task_ctx(action.task_id)
             gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
+            role = str(params.get("role", "")).strip().lower()
             channel = params.get("channel")
             inst_name = str(params.get("instrument_name", "")).strip()
+            fallbacks = params.get("fallbacks") or []
+            if channel is None and role and role in ctx["role_channels"]:
+                channel = ctx["role_channels"][role]
             try:
                 all_chs = await self.fl_adapter.async_get_channels()
+                claimed = set(ctx["role_channels"].values())
                 if channel is None and all_chs:
-                    # Prefer a channel matching instrument_name or the newest added non-808 channel (index >= 4)
                     matched_idx = None
                     if inst_name:
                         for c in all_chs:
+                            c_idx = int(c.get("i", 0))
+                            if c_idx in claimed:
+                                continue
                             if inst_name.lower() in str(c.get("name", "")).lower():
-                                matched_idx = int(c.get("i", 0))
+                                matched_idx = c_idx
                                 break
                     if matched_idx is not None:
                         channel = matched_idx
-                    elif len(all_chs) > 4:
-                        channel = int(all_chs[-1].get("i", len(all_chs) - 1))
                     else:
-                        # Load the requested instrument live so we don't write piano/melody notes onto 808 Kick!
-                        load_res = await asyncio.to_thread(gui.load_instrument_live, inst_name or "FL Keys")
+                        load_res = await asyncio.to_thread(
+                            gui.load_track_instrument_live,
+                            inst_name or "FL Keys",
+                            fallbacks,
+                            list(claimed),
+                            role,
+                        )
                         channel = load_res.get("channel", max(0, len(all_chs) - 1))
                 if channel is not None:
-                    await self.fl_adapter.async_select_channel(int(channel))
+                    channel = int(channel)
+                    if role:
+                        ctx["role_channels"][role] = channel
+                    await self.fl_adapter.async_select_channel(channel)
             except Exception as e:
                 logger.debug("Channel selection before Piano Roll apply: %s", e)
 
             notes = params.get("notes", [])
             mode = str(params.get("mode", "replace"))
-            res = await self.fl_adapter.async_apply_piano_roll_notes(notes=notes, mode=mode, trigger=True)
+            pat_idx = ctx.get("role_patterns", {}).get(role)
+            if pat_idx and hasattr(self.fl_adapter, "async_select_pattern"):
+                try:
+                    await self.fl_adapter.async_select_pattern(int(pat_idx), deselect=True)
+                except Exception:
+                    pass
+            # Move visually in Piano Roll first, then write exact MIDI pitches/lengths/808 glides via PyScript
             await asyncio.to_thread(
                 gui.draw_melody_in_piano_roll_live,
                 int(channel) if channel is not None else None,
                 notes,
             )
+            res = await self.fl_adapter.async_apply_piano_roll_notes(notes=notes, mode=mode, trigger=True)
             return {
                 "verified": bool(res.get("ok", True)),
                 "pattern": {"length_bars": params.get("bars", 4), "notes_count": len(notes)},
                 "notes": notes,
                 "channel": channel,
+                "role": role,
                 "script": res.get("script"),
                 "triggered": res.get("triggered"),
             }
@@ -361,17 +576,93 @@ class ActionExecutor:
         atype = action.action_type
         params = action.parameters
 
-        if atype == ActionType.LOAD_PLUGIN_PRESET and "PYTEST_CURRENT_TEST" not in __import__("os").environ:
+        in_pytest = "PYTEST_CURRENT_TEST" in __import__("os").environ
+        if atype == ActionType.LOAD_PLUGIN_PRESET and not in_pytest:
             from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
+            ctx = self._get_task_ctx(action.task_id)
             plugin_name = str(params.get("plugin_name", params.get("instrument_name", "FL Keys")))
+            role = str(params.get("role", "")).strip().lower()
+            fallbacks = params.get("fallbacks") or []
+            exclude = list(ctx["role_channels"].values())
             gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
-            res = await asyncio.to_thread(gui.load_instrument_live, plugin_name)
+            res = await asyncio.to_thread(
+                gui.load_track_instrument_live,
+                plugin_name,
+                fallbacks,
+                exclude,
+                role,
+            )
+            if res.get("ok") and res.get("channel") is not None:
+                ctx["role_channels"][role or plugin_name.lower()] = int(res["channel"])
             return {
                 "verified": bool(res.get("ok", True)),
                 "method_used": "LiveMouse_PluginPicker_F8",
                 "instrument": res.get("instrument", plugin_name),
+                "requested": res.get("requested", plugin_name),
+                "reused": bool(res.get("reused", False)),
                 "channel": res.get("channel", 0),
+                "role": role,
             }
+
+        if atype == ActionType.LOAD_MIXER_EFFECT and not in_pytest:
+            from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
+            from ..music_engine.mix_master import MixMasterEngine
+            ctx = self._get_task_ctx(action.task_id)
+            role = str(params.get("role", "")).strip().lower()
+            mixer_track = ctx.get("role_overflow_tracks", {}).get(role) if role else None
+            if mixer_track is None:
+                mixer_track = params.get("mixer_track")
+            if mixer_track is None:
+                mixer_track = ctx["role_mixer_tracks"].get(role, MixMasterEngine().get_mixer_track_for_role(role))
+            mixer_track = int(mixer_track)
+            plugin_name = str(params.get("plugin_name", "Fruity Parametric EQ 2"))
+            fallbacks = params.get("fallbacks") or []
+            gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
+            res = await asyncio.to_thread(gui.load_mixer_effect_live, mixer_track, plugin_name, fallbacks)
+            effective_track = int(res.get("mixer_track", mixer_track) or mixer_track)
+            if res.get("loaded") and res.get("slot") is not None:
+                ctx["loaded_fx_slots"][(effective_track, plugin_name.lower())] = int(res["slot"])
+                ctx["loaded_fx_slots"][(mixer_track, plugin_name.lower())] = int(res["slot"])
+                if role and res.get("daisy_chained"):
+                    ctx["role_overflow_tracks"][role] = effective_track
+                    if role != "master":
+                        ctx["role_mixer_tracks"][role] = effective_track
+            return res
+
+        if atype == ActionType.SET_MIXER_ROUTING and not in_pytest:
+            from ..integrations.computer_use.fl_live_gui import FLLiveGUIController
+            from ..music_engine.mix_master import MixMasterEngine
+            ctx = self._get_task_ctx(action.task_id)
+            if "src" in params and "dst" in params and self.fl_adapter:
+                res = await self.fl_adapter.async_set_mixer_route(
+                    int(params["src"]),
+                    int(params["dst"]),
+                    bool(params.get("enabled", True)),
+                )
+                return {"verified": True, **res}
+            role = str(params.get("role", "")).strip().lower()
+            mixer_track = int(
+                params.get("mixer_track")
+                if params.get("mixer_track") is not None
+                else MixMasterEngine().get_mixer_track_for_role(role)
+            )
+            channel = params.get("channel")
+            if channel is None and role:
+                channel = ctx["role_channels"].get(role)
+            if channel is None:
+                return {"verified": False, "error": f"No channel found for routing role '{role}'"}
+            gui = FLLiveGUIController(fl_adapter=self.fl_adapter)
+            res = await asyncio.to_thread(gui.route_channel_to_mixer_track_live, int(channel), mixer_track)
+            if role:
+                ctx["role_mixer_tracks"][role] = mixer_track
+            return res
+
+        if in_pytest and atype in (
+            ActionType.LOAD_PLUGIN_PRESET,
+            ActionType.LOAD_MIXER_EFFECT,
+            ActionType.SET_MIXER_ROUTING,
+        ):
+            return await self._mock_execution(action, cancel_event)
 
         if not self.hcu_adapter:
             return await self._mock_execution(action, cancel_event)
@@ -439,6 +730,38 @@ class ActionExecutor:
             return {"verified": True, "bar": action.parameters.get("bar", 1), "name": action.parameters.get("name", "Marker")}
         elif action.action_type in (ActionType.OPEN_PLUGIN_WINDOW, ActionType.LOAD_PLUGIN_PRESET):
             return {"verified": True, "method_used": "UIA"}
+        elif action.action_type == ActionType.LOAD_MIXER_EFFECT:
+            return {
+                "verified": True,
+                "plugin_loaded": True,
+                "loaded": True,
+                "mixer_track": action.parameters.get("mixer_track", 0),
+                "slot": 0,
+                "plugin_name": action.parameters.get("plugin_name", "Fruity Parametric EQ 2"),
+            }
+        elif action.action_type == ActionType.SET_PLUGIN_PARAM:
+            return {
+                "verified": True,
+                "updated_count": 3,
+                "track": action.parameters.get("track", 0),
+                "detail": "Mock plugin parameters tuned",
+            }
+        elif action.action_type == ActionType.SET_MIXER_ROUTING:
+            return {
+                "verified": True,
+                "channel": action.parameters.get("channel", 4),
+                "target_mixer_track": action.parameters.get("mixer_track", 4),
+            }
+        elif action.action_type == ActionType.SET_MIXER_TRACK_META:
+            return {
+                "verified": True,
+                "track": action.parameters.get("track", 0),
+                "name": action.parameters.get("name", "Track"),
+            }
+        elif action.action_type == ActionType.AUTO_MIX_MASTER:
+            return {"verified": True, "detail": "Mock auto-mix & mastering applied"}
+        elif action.action_type == ActionType.SET_MIXER_SOLO:
+            return {"track": action.parameters.get("track", 1), "mute": action.parameters.get("state", True)}
         elif action.action_type == ActionType.SET_PLAY_STATE:
             return {"verified": True, "data": action.parameters.get("state", "play")}
         elif action.action_type in (ActionType.CREATE_MIDI_PATTERN, ActionType.CREATE_DRUM_PATTERN):

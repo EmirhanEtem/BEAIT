@@ -30,9 +30,53 @@ from .sessions import TaskExecutionManager
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("fl_assistant_backend")
 
+def _build_initial_app_settings() -> AppSettings:
+    from .model_providers import DEFAULT_GEMINI_MODEL, ProviderConfig
+
+    configured = ProviderConfig.all_configured_from_env()
+    primary = configured[0] if configured else ProviderConfig.from_env()
+    gem_cfg = ProviderConfig.from_env("gemini")
+    oa_cfg = ProviderConfig.from_env("openai")
+    anth_cfg = ProviderConfig.from_env("anthropic")
+    loc_cfg = ProviderConfig.from_env("local")
+    gem_model = gem_cfg.model_name
+    if gem_model in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-pro-preview"):
+        gem_model = DEFAULT_GEMINI_MODEL
+    return AppSettings(
+        llm_provider=primary.provider_name,
+        openai_model=oa_cfg.model_name,
+        openai_base_url=oa_cfg.base_url,
+        gemini_model=gem_model,
+        anthropic_model=anth_cfg.model_name,
+        local_model_url=loc_cfg.base_url,
+        local_model_name=loc_cfg.model_name,
+    )
+
+
+def _apply_settings_to_manager(new_settings: AppSettings) -> None:
+    from .model_providers import ProviderConfig
+
+    cfg = ProviderConfig.from_env(provider_override=new_settings.llm_provider)
+    prov = (new_settings.llm_provider or "openai").lower()
+    if prov == "openai":
+        cfg.model_name = new_settings.openai_model
+        cfg.base_url = new_settings.openai_base_url
+    elif prov == "gemini":
+        cfg.model_name = new_settings.gemini_model
+    elif prov == "anthropic":
+        cfg.model_name = new_settings.anthropic_model
+    elif prov == "local":
+        cfg.model_name = new_settings.local_model_name
+        cfg.base_url = new_settings.local_model_url
+    manager.orchestrator.model_provider.config = cfg
+    if getattr(manager.orchestrator.executor, "approval_manager", None) is not None:
+        manager.orchestrator.executor.approval_manager.safe_mode = new_settings.safe_mode
+
+
 # Global singleton execution manager
 manager = TaskExecutionManager()
-app_settings = AppSettings()
+app_settings = _build_initial_app_settings()
+_apply_settings_to_manager(app_settings)
 diagnostics_service = SystemDiagnosticsService(
     fl_adapter=manager.fl_adapter,
     hcu_adapter=manager.hcu_adapter,
@@ -114,13 +158,17 @@ async def refresh_context():
 # -- Task Management Endpoints -----------------------------------------------
 
 @app.get("/api/tasks", response_model=List[TaskResponse])
-async def list_tasks():
-    return manager.list_tasks()
+async def list_tasks(session_id: Optional[str] = None):
+    return manager.list_tasks(session_id=session_id)
 
 
 @app.post("/api/tasks", response_model=TaskResponse)
 async def submit_task(request: TaskCreateRequest):
-    return await manager.submit_task(prompt=request.prompt, is_mock=request.is_mock)
+    return await manager.submit_task(
+        prompt=request.prompt,
+        is_mock=request.is_mock,
+        session_id=request.session_id,
+    )
 
 
 @app.get("/api/tasks/{task_id}", response_model=TaskResponse)
@@ -145,20 +193,90 @@ async def stop_active_task():
 
 # -- Chat Endpoints ----------------------------------------------------------
 
+from .schemas.tasks import ChatSession, ChatSessionCreateRequest, ChatSessionUpdateRequest
+
+
 class SendMessageRequest(BaseModel):
     text: str
+    session_id: Optional[str] = None
+    is_mock: bool = True
 
 
 @app.get("/api/chat/messages", response_model=List[ChatMessage])
-async def get_messages():
-    return manager.get_messages()
+async def get_messages(session_id: Optional[str] = None):
+    return manager.get_messages(session_id=session_id)
 
 
 @app.post("/api/chat/messages", response_model=ChatMessage)
 async def send_chat_message(req: SendMessageRequest):
     # If it's a command/request from user, also trigger task submission
-    task = await manager.submit_task(prompt=req.text, is_mock=True)
-    return manager.get_messages()[-1]
+    task = await manager.submit_task(
+        prompt=req.text,
+        is_mock=req.is_mock,
+        session_id=req.session_id,
+    )
+    msgs = manager.get_messages(session_id=task.session_id)
+    if not msgs:
+        raise HTTPException(status_code=500, detail="Message creation failed")
+    return msgs[-1]
+
+
+@app.get("/api/chats", response_model=List[ChatSession])
+async def list_chat_sessions():
+    return manager.list_sessions()
+
+
+@app.post("/api/chats", response_model=ChatSession)
+async def create_chat_session(req: Optional[ChatSessionCreateRequest] = None):
+    title = req.title if req else None
+    return manager.create_session(title=title)
+
+
+@app.get("/api/chats/{session_id}", response_model=ChatSession)
+async def get_chat_session(session_id: str):
+    sess = manager.get_session(session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return sess
+
+
+@app.patch("/api/chats/{session_id}", response_model=ChatSession)
+async def rename_chat_session(session_id: str, req: ChatSessionUpdateRequest):
+    sess = await manager.rename_session(session_id, req.title)
+    if not sess:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return sess
+
+
+@app.delete("/api/chats/{session_id}")
+async def delete_chat_session(session_id: str):
+    if not manager.get_session(session_id):
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    deleted = manager.delete_session(session_id)
+    return {
+        "deleted": deleted,
+        "sessions": [s.model_dump(mode="json") for s in manager.list_sessions()],
+        "active_session_id": manager._active_session_id,
+    }
+
+
+@app.get("/api/chats/{session_id}/messages", response_model=List[ChatMessage])
+async def get_chat_session_messages(session_id: str):
+    if not manager.get_session(session_id):
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    manager._active_session_id = session_id
+    manager._messages = manager.get_messages(session_id=session_id)
+    return manager._messages
+
+
+@app.post("/api/chats/{session_id}/select", response_model=ChatSession)
+async def select_chat_session(session_id: str):
+    sess = manager.get_session(session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    manager._active_session_id = session_id
+    manager._messages = manager.get_messages(session_id=session_id)
+    return sess
 
 
 # -- Settings Endpoints ------------------------------------------------------
@@ -172,7 +290,42 @@ async def get_settings():
 async def update_settings(new_settings: AppSettings):
     global app_settings
     app_settings = new_settings
+    _apply_settings_to_manager(new_settings)
     return app_settings
+
+
+class ModelTestRequest(BaseModel):
+    provider: str = "gemini"
+    model: str = ""
+    base_url: Optional[str] = None
+
+
+@app.get("/api/providers/models")
+async def get_provider_models(provider: Optional[str] = None, live: bool = True):
+    from .model_providers import list_available_models
+    target_provider = (provider or app_settings.llm_provider or "openai").lower()
+    base_url = None
+    if target_provider == "openai":
+        base_url = app_settings.openai_base_url
+    elif target_provider == "local":
+        base_url = app_settings.local_model_url
+    return await asyncio.to_thread(
+        list_available_models,
+        target_provider,
+        base_url=base_url,
+        live=live,
+    )
+
+
+@app.post("/api/providers/test-model")
+async def test_selected_model(req: ModelTestRequest):
+    from .model_providers import test_provider_model
+    return await asyncio.to_thread(
+        test_provider_model,
+        req.provider,
+        req.model,
+        base_url=req.base_url,
+    )
 
 
 # -- Screen & Preview Endpoints ----------------------------------------------

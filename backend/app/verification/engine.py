@@ -65,10 +65,21 @@ class VerificationEngine:
 
             elif action.action_type == ActionType.ADD_ARRANGEMENT_MARKER:
                 is_ver = bool(post.get("verified", True))
+                painted = post.get("painted_tracks")
+                sb = post.get("song_length_bars")
+                extra = ""
+                if painted is not None:
+                    extra = f" | painted_tracks={painted}"
+                    if sb:
+                        extra += f", song_length={sb} bars"
                 return VerificationOutcome(
                     success=is_ver,
                     verified=is_ver,
-                    detail=f"Playlist time marker '{action.parameters.get('name')}' added at bar {action.parameters.get('bar')}.",
+                    detail=(
+                        f"Playlist time marker '{action.parameters.get('name')}' added at bar {action.parameters.get('bar')}{extra}."
+                        if is_ver
+                        else f"Playlist arrangement verification failed ({post.get('error') or 'no clips detected'}{extra})."
+                    ),
                 )
 
             elif action.action_type == ActionType.SET_PLAY_STATE:
@@ -78,6 +89,24 @@ class VerificationEngine:
                     verified=is_ver,
                     detail=f"Transport playback state set to '{action.parameters.get('state', 'play')}'.",
                 )
+
+            elif action.action_type == ActionType.SET_MIXER_SOLO:
+                return self._verify_mute(action, post)
+
+            elif action.action_type == ActionType.LOAD_MIXER_EFFECT:
+                return self._verify_mixer_effect(action, post)
+
+            elif action.action_type == ActionType.SET_PLUGIN_PARAM:
+                return self._verify_plugin_param(action, post)
+
+            elif action.action_type == ActionType.SET_MIXER_ROUTING:
+                return self._verify_mixer_routing(action, post)
+
+            elif action.action_type == ActionType.SET_MIXER_TRACK_META:
+                return self._verify_mixer_track_meta(action, post)
+
+            elif action.action_type == ActionType.AUTO_MIX_MASTER:
+                return self._verify_auto_mix_master(action, post)
 
             elif action.action_type in (ActionType.OPEN_PLUGIN_WINDOW, ActionType.LOAD_PLUGIN_PRESET):
                 is_ver = bool(post.get("verified"))
@@ -302,5 +331,129 @@ class VerificationEngine:
             success=True,
             verified=True,
             detail=f"Exported file verified: {size} bytes.",
+        )
+
+    def _verify_mixer_effect(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("error") or post.get("verified") is False:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Mixer FX plugin load failed: {post.get('error') or 'not verified'}",
+                needs_recovery=True,
+                error="mixer_effect_load_failed",
+            )
+        loaded_name = post.get("plugin_name") or post.get("loaded") or action.parameters.get("plugin_name", "")
+        slots = post.get("slots")
+        if isinstance(slots, list) and loaded_name:
+            target_low = str(loaded_name).lower()
+            candidates = [target_low] + [str(fb).lower() for fb in (action.parameters.get("fallbacks") or [])]
+            if any(
+                any(cand in str(s.get("name", "")).lower() for cand in candidates if cand)
+                for s in slots
+                if isinstance(s, dict)
+            ):
+                return VerificationOutcome(
+                    success=True,
+                    verified=True,
+                    detail=f"Mixer FX '{loaded_name}' verified in track {action.parameters.get('mixer_track')} slots.",
+                )
+        if post.get("plugin_loaded") or post.get("verified") is True:
+            return VerificationOutcome(
+                success=True,
+                verified=True,
+                detail=f"Mixer FX '{loaded_name}' confirmed on mixer track {action.parameters.get('mixer_track')}.",
+            )
+        return VerificationOutcome(
+            success=False,
+            verified=False,
+            detail=f"Mixer FX '{loaded_name}' could not be confirmed on track {action.parameters.get('mixer_track')}.",
+            needs_recovery=True,
+            error="mixer_effect_not_found",
+        )
+
+    def _verify_plugin_param(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("error") or post.get("verified") is False:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Plugin parameter update failed: {post.get('error') or 'mismatch'}",
+                needs_recovery=True,
+                error="plugin_param_mismatch",
+            )
+        expected = post.get("expected_value")
+        actual = post.get("actual_value")
+        if expected is not None and actual is not None:
+            if abs(float(expected) - float(actual)) <= 0.08:
+                return VerificationOutcome(
+                    success=True,
+                    verified=True,
+                    detail=f"Plugin param readback verified: {actual:.3f}",
+                )
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Plugin param mismatch: expected {expected}, got {actual}",
+                needs_recovery=True,
+                error="plugin_param_mismatch",
+            )
+        return VerificationOutcome(
+            success=True,
+            verified=bool(post.get("verified", True)),
+            detail=post.get("detail") or f"Applied {post.get('updated_count', 1)} plugin parameter(s).",
+        )
+
+    def _verify_mixer_routing(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("error") or post.get("verified") is False:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Mixer routing failed: {post.get('error') or 'unverified'}",
+                needs_recovery=True,
+                error="mixer_routing_failed",
+            )
+        expected_track = action.parameters.get("mixer_track")
+        actual_track = post.get("target_mixer_track")
+        if expected_track is not None and actual_track is not None and int(expected_track) != int(actual_track):
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Channel routing mismatch: expected track {expected_track}, got {actual_track}",
+                needs_recovery=True,
+                error="mixer_routing_mismatch",
+            )
+        return VerificationOutcome(
+            success=True,
+            verified=True,
+            detail=post.get("detail") or "Mixer routing confirmed.",
+        )
+
+    def _verify_mixer_track_meta(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("error") or post.get("verified") is False:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Mixer track metadata update failed: {post.get('error')}",
+                needs_recovery=True,
+                error="mixer_meta_failed",
+            )
+        return VerificationOutcome(
+            success=True,
+            verified=True,
+            detail=post.get("detail") or f"Mixer track {action.parameters.get('track')} labeled '{action.parameters.get('name', '')}'.",
+        )
+
+    def _verify_auto_mix_master(self, action: ActionDefinition, post: Dict[str, Any]) -> VerificationOutcome:
+        if post.get("error") or post.get("verified") is False:
+            return VerificationOutcome(
+                success=False,
+                verified=False,
+                detail=f"Auto mix/master failed: {post.get('error')}",
+                needs_recovery=True,
+                error="auto_mix_failed",
+            )
+        return VerificationOutcome(
+            success=True,
+            verified=True,
+            detail=post.get("detail") or "Mix & mastering pass verified.",
         )
 

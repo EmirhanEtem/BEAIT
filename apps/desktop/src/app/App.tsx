@@ -23,7 +23,7 @@ export const App: React.FC = () => {
       {/* Main Workspace (Split View) */}
       <div className="flex-1 flex overflow-hidden p-3 gap-3">
         {/* Left Side: Chat & Commands Panel */}
-        <div className="w-1/2 min-w-[380px] max-w-[560px] h-full flex flex-col">
+        <div className="w-[48%] min-w-[440px] max-w-[700px] h-full flex flex-col">
           <ChatPanel />
         </div>
 

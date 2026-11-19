@@ -37,6 +37,11 @@ def classify_risk(action_type: ActionType, parameters: Optional[dict] = None) ->
         ActionType.SET_MIXER_MUTE,
         ActionType.SET_MIXER_SOLO,
         ActionType.LOAD_PLUGIN_PRESET,
+        ActionType.LOAD_MIXER_EFFECT,
+        ActionType.SET_PLUGIN_PARAM,
+        ActionType.SET_MIXER_ROUTING,
+        ActionType.SET_MIXER_TRACK_META,
+        ActionType.AUTO_MIX_MASTER,
         ActionType.OPEN_PLUGIN_WINDOW,
         ActionType.CREATE_PROJECT_CHECKPOINT,
     ):

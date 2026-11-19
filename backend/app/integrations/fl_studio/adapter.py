@@ -49,20 +49,40 @@ from fl_studio_mcp.protocol import (  # type: ignore[import-not-found,import-unt
     CMD_CHANNEL_SET_MUTE,
     CMD_MIXER_LIST_TRACKS,
     CMD_MIXER_GET_TRACK,
+    CMD_MIXER_GET_SELECTED_TRACK,
+    CMD_MIXER_SELECT_TRACK,
     CMD_MIXER_SET_VOLUME,
     CMD_MIXER_SET_PAN,
     CMD_MIXER_SET_MUTE,
     CMD_MIXER_SET_SOLO,
     CMD_MIXER_SET_NAME,
+    CMD_MIXER_SET_COLOR,
+    CMD_MIXER_SET_ROUTE,
+    CMD_MIXER_GET_ROUTING,
+    CMD_MIXER_GET_PEAKS,
+    CMD_CHANNEL_SET_SOLO,
+    CMD_CHANNEL_SET_COLOR,
+    CMD_CHANNEL_ROUTING_SUMMARY,
+    CMD_CHANNEL_SET_TARGET_MIXER,
+    CMD_PLUGIN_LIST,
+    CMD_PLUGIN_GET_PARAMS,
+    CMD_PLUGIN_GET_PARAM,
+    CMD_PLUGIN_SET_PARAM,
+    CMD_PLUGIN_PRESET,
     CMD_PATTERN_LIST,
     CMD_ARRANGE_NEW_PATTERN,
     CMD_ARRANGE_CLONE_PATTERN,
     CMD_ARRANGE_ADD_MARKER,
+    CMD_ARRANGE_SELECT_PATTERN,
+    CMD_TRANSPORT_LOOP_MODE,
+    CMD_PLAYLIST_STATE,
+    CMD_PLAYLIST_SETUP_TRACK,
     CMD_ENSURE_PIANO_ROLL,
     CMD_PLAY,
     CMD_STOP,
     CMD_TOGGLE_PLAY,
     CMD_GET_PLAY_STATE,
+    CMD_SET_SONG_POS,
 )
 
 logger = logging.getLogger(__name__)
@@ -321,6 +341,18 @@ class FLStudioAdapter:
         """Toggle FL Studio playback."""
         return self._call(CMD_TOGGLE_PLAY)
 
+    def get_loop_mode(self) -> dict:
+        """Read FL Studio loop mode (0=pattern, 1=song)."""
+        return self._call(CMD_TRANSPORT_LOOP_MODE, {"mode": "get"})
+
+    def set_loop_mode(self, mode: str = "song") -> dict:
+        """Switch FL Studio transport between Song ('song') and Pattern ('pattern') mode."""
+        return self._call(CMD_TRANSPORT_LOOP_MODE, {"mode": str(mode)})
+
+    def set_song_position(self, beats: float = 0.0) -> dict:
+        """Seek FL Studio playback cursor to a beat position (0.0 = Bar 1)."""
+        return self._call(CMD_SET_SONG_POS, {"beats": float(beats)})
+
     # -- channel & step sequencer (drums) ------------------------------------
 
     def get_channels(self) -> list:
@@ -450,6 +482,151 @@ class FLStudioAdapter:
             verified=verified,
         )
 
+    def set_channel_mute(self, channel: int, state: bool) -> dict:
+        return self._call(CMD_CHANNEL_SET_MUTE, {"channel": channel, "state": state})
+
+    def set_channel_solo(self, channel: int, state: bool) -> dict:
+        return self._call(CMD_CHANNEL_SET_SOLO, {"channel": channel, "state": state})
+
+    def set_channel_color(self, channel: int, r: int, g: int, b: int) -> dict:
+        return self._call(CMD_CHANNEL_SET_COLOR, {"channel": channel, "r": int(r), "g": int(g), "b": int(b)})
+
+    def get_channel_routing_summary(self) -> list:
+        """Read paginated channel -> mixer insert routing summary."""
+        return self._fetch_all(CMD_CHANNEL_ROUTING_SUMMARY, "channels")
+
+    def set_mixer_solo(self, track: int, state: bool) -> dict:
+        return self._call(CMD_MIXER_SET_SOLO, {"track": track, "state": state})
+
+    def set_mixer_name(self, track: int, name: str) -> dict:
+        return self._call(CMD_MIXER_SET_NAME, {"track": int(track), "name": str(name)})
+
+    def set_mixer_color(self, track: int, r: int, g: int, b: int) -> dict:
+        return self._call(CMD_MIXER_SET_COLOR, {"track": int(track), "r": int(r), "g": int(g), "b": int(b)})
+
+    def get_mixer_routing(self, track: int) -> dict:
+        return self._call(CMD_MIXER_GET_ROUTING, {"track": int(track)})
+
+    def set_mixer_route(self, src: int, dst: int, enabled: bool = True) -> dict:
+        return self._call(CMD_MIXER_SET_ROUTE, {"src": int(src), "dst": int(dst), "enabled": bool(enabled)})
+
+    def get_mixer_peaks(self, track: int) -> dict:
+        """Read live mixer L/R/max peak amplitudes (meaningful during playback)."""
+        return self._call(CMD_MIXER_GET_PEAKS, {"track": int(track)})
+
+    def get_selected_mixer_track(self) -> dict:
+        """Read the currently selected Mixer track index in FL Studio (`mixer.trackNumber()`)."""
+        return self._call(CMD_MIXER_GET_SELECTED_TRACK)
+
+    def select_mixer_track(self, track: int, focus: bool = True) -> dict:
+        """Deterministically select a Mixer track in FL Studio (`mixer.setTrackNumber`)."""
+        return self._call(CMD_MIXER_SELECT_TRACK, {"track": int(track), "focus": bool(focus)})
+
+    def set_channel_target_mixer(self, channel: int, track: int) -> dict:
+        """Route a Channel Rack channel directly to a Mixer insert (`channels.setTargetFxTrack`)."""
+        return self._call(CMD_CHANNEL_SET_TARGET_MIXER, {"channel": int(channel), "track": int(track)})
+
+    # -- mixer & generator plugins -------------------------------------------
+
+    def plugin_list(self, track: int) -> dict:
+        """List loaded plugins on a mixer track's FX slots."""
+        return self._call(CMD_PLUGIN_LIST, {"track": int(track)})
+
+    def plugin_get_params(
+        self,
+        track: int,
+        slot: int,
+        start: int = 0,
+        fetch_all: bool = True,
+        max_pages: int = 32,
+    ) -> dict:
+        """Dump plugin parameters, optionally following paginated `next_start`."""
+        cur_start = max(0, int(start))
+        first_page = self._call(
+            CMD_PLUGIN_GET_PARAMS,
+            {"track": int(track), "slot": int(slot), "start": cur_start},
+        )
+        if not isinstance(first_page, dict):
+            return {"track": int(track), "slot": int(slot), "plugin": "", "total": 0, "params": []}
+
+        params = list(first_page.get("params") or [])
+        plugin_name = first_page.get("plugin", "")
+        total = first_page.get("total", len(params))
+        next_start = first_page.get("next_start")
+
+        if not fetch_all:
+            return first_page
+
+        seen_starts = {cur_start}
+        pages = 1
+        truncated = False
+        while next_start is not None and isinstance(next_start, int):
+            if pages >= max_pages or next_start in seen_starts or next_start <= cur_start:
+                truncated = next_start is not None
+                break
+            seen_starts.add(next_start)
+            cur_start = next_start
+            page = self._call(
+                CMD_PLUGIN_GET_PARAMS,
+                {"track": int(track), "slot": int(slot), "start": cur_start},
+            )
+            pages += 1
+            if not isinstance(page, dict):
+                break
+            page_params = page.get("params") or []
+            if not page_params:
+                break
+            params.extend(page_params)
+            next_start = page.get("next_start")
+
+        return {
+            "track": int(track),
+            "slot": int(slot),
+            "plugin": plugin_name,
+            "total": total,
+            "params": params,
+            "truncated": truncated,
+        }
+
+    def plugin_get_param(self, track: int, slot: int, param: int) -> dict:
+        return self._call(
+            CMD_PLUGIN_GET_PARAM,
+            {"track": int(track), "slot": int(slot), "param": int(param)},
+        )
+
+    def plugin_set_param(self, track: int, slot: int, param: int, value: float) -> dict:
+        clamped = max(0.0, min(1.0, float(value)))
+        return self._call(
+            CMD_PLUGIN_SET_PARAM,
+            {"track": int(track), "slot": int(slot), "param": int(param), "value": clamped},
+        )
+
+    def plugin_preset(self, track: int, slot: int = -1, op: str = "info") -> dict:
+        return self._call(
+            CMD_PLUGIN_PRESET,
+            {"track": int(track), "slot": int(slot), "op": str(op)},
+        )
+
+    def find_plugin_preset(
+        self,
+        track: int,
+        slot: int = -1,
+        keywords: Any = "",
+        max_steps: int = 12,
+        fallback_step: int = 1,
+    ) -> dict:
+        """Step through presets on a generator (slot=-1) or FX plugin matching keywords."""
+        params: dict[str, Any] = {
+            "track": int(track),
+            "slot": int(slot),
+            "op": "find",
+            "max_steps": int(max_steps),
+            "fallback_step": int(fallback_step),
+        }
+        if keywords:
+            params["keywords"] = keywords
+        return self._call(CMD_PLUGIN_PRESET, params)
+
     # -- patterns & piano roll -----------------------------------------------
 
     def get_patterns(self) -> list:
@@ -477,6 +654,49 @@ class FLStudioAdapter:
         if bar < 1:
             raise ValueError("Bar index must be >= 1.")
         return self._call(CMD_ARRANGE_ADD_MARKER, {"bar": bar, "name": name})
+
+    def select_pattern(self, index: int, deselect: bool = True) -> dict:
+        """Deterministically jump to a 1-based pattern via SysEx (`patterns.jumpToPattern`)."""
+        if index < 1:
+            raise ValueError("Pattern index must be >= 1.")
+        return self._call(CMD_ARRANGE_SELECT_PATTERN, {"index": int(index), "deselect": bool(deselect)})
+
+    def get_playlist_state(self, max_tracks: int = 6) -> dict:
+        """Read Song length (ticks/bars), vis bar, loop mode, track info, and hint bar."""
+        return self._call(CMD_PLAYLIST_STATE, {"max_tracks": int(max_tracks)})
+
+    def setup_playlist_track(
+        self,
+        track: Optional[int] = None,
+        *,
+        name: Optional[str] = None,
+        r: Optional[int] = None,
+        g: Optional[int] = None,
+        b: Optional[int] = None,
+        deselect_all: bool = False,
+        select_all: bool = False,
+        scroll_to: Optional[int] = None,
+        focus: bool = False,
+    ) -> dict:
+        """Configure a Playlist track name/color or manage Playlist focus/selection/scroll."""
+        params: dict[str, Any] = {}
+        if focus:
+            params["focus"] = True
+        if deselect_all:
+            params["deselect_all"] = True
+        if select_all:
+            params["select_all"] = True
+        if scroll_to is not None:
+            params["scroll_to"] = int(scroll_to)
+        if track is not None:
+            params["track"] = int(track)
+            if name:
+                params["name"] = str(name)
+            if r is not None and g is not None and b is not None:
+                params["r"] = int(r)
+                params["g"] = int(g)
+                params["b"] = int(b)
+        return self._call(CMD_PLAYLIST_SETUP_TRACK, params)
 
     def ensure_piano_roll(self) -> dict:
         """Ensure the Piano roll window is focused/open."""
@@ -599,3 +819,119 @@ class FLStudioAdapter:
 
     async def async_apply_piano_roll_notes(self, notes: List[dict], mode: str = "replace", trigger: bool = True) -> dict:
         return await asyncio.to_thread(self.apply_piano_roll_notes, notes, mode=mode, trigger=trigger)
+
+    async def async_set_channel_mute(self, channel: int, state: bool) -> dict:
+        return await asyncio.to_thread(self.set_channel_mute, channel, state)
+
+    async def async_set_channel_solo(self, channel: int, state: bool) -> dict:
+        return await asyncio.to_thread(self.set_channel_solo, channel, state)
+
+    async def async_set_channel_color(self, channel: int, r: int, g: int, b: int) -> dict:
+        return await asyncio.to_thread(self.set_channel_color, channel, r, g, b)
+
+    async def async_get_channel_routing_summary(self) -> list:
+        return await asyncio.to_thread(self.get_channel_routing_summary)
+
+    async def async_set_mixer_solo(self, track: int, state: bool) -> dict:
+        return await asyncio.to_thread(self.set_mixer_solo, track, state)
+
+    async def async_set_mixer_name(self, track: int, name: str) -> dict:
+        return await asyncio.to_thread(self.set_mixer_name, track, name)
+
+    async def async_set_mixer_color(self, track: int, r: int, g: int, b: int) -> dict:
+        return await asyncio.to_thread(self.set_mixer_color, track, r, g, b)
+
+    async def async_get_mixer_routing(self, track: int) -> dict:
+        return await asyncio.to_thread(self.get_mixer_routing, track)
+
+    async def async_set_mixer_route(self, src: int, dst: int, enabled: bool = True) -> dict:
+        return await asyncio.to_thread(self.set_mixer_route, src, dst, enabled)
+
+    async def async_get_mixer_peaks(self, track: int) -> dict:
+        return await asyncio.to_thread(self.get_mixer_peaks, track)
+
+    async def async_get_selected_mixer_track(self) -> dict:
+        return await asyncio.to_thread(self.get_selected_mixer_track)
+
+    async def async_select_mixer_track(self, track: int, focus: bool = True) -> dict:
+        return await asyncio.to_thread(self.select_mixer_track, track, focus=focus)
+
+    async def async_set_channel_target_mixer(self, channel: int, track: int) -> dict:
+        return await asyncio.to_thread(self.set_channel_target_mixer, channel, track)
+
+    async def async_plugin_list(self, track: int) -> dict:
+        return await asyncio.to_thread(self.plugin_list, track)
+
+    async def async_plugin_get_params(
+        self, track: int, slot: int, start: int = 0, fetch_all: bool = True, max_pages: int = 32
+    ) -> dict:
+        return await asyncio.to_thread(
+            self.plugin_get_params, track, slot, start=start, fetch_all=fetch_all, max_pages=max_pages
+        )
+
+    async def async_plugin_get_param(self, track: int, slot: int, param: int) -> dict:
+        return await asyncio.to_thread(self.plugin_get_param, track, slot, param)
+
+    async def async_plugin_set_param(self, track: int, slot: int, param: int, value: float) -> dict:
+        return await asyncio.to_thread(self.plugin_set_param, track, slot, param, value)
+
+    async def async_plugin_preset(self, track: int, slot: int = -1, op: str = "info") -> dict:
+        return await asyncio.to_thread(self.plugin_preset, track, slot, op)
+
+    async def async_find_plugin_preset(
+        self,
+        track: int,
+        slot: int = -1,
+        keywords: Any = "",
+        max_steps: int = 12,
+        fallback_step: int = 1,
+    ) -> dict:
+        return await asyncio.to_thread(
+            self.find_plugin_preset,
+            track,
+            slot,
+            keywords=keywords,
+            max_steps=max_steps,
+            fallback_step=fallback_step,
+        )
+
+    async def async_get_loop_mode(self) -> dict:
+        return await asyncio.to_thread(self.get_loop_mode)
+
+    async def async_set_loop_mode(self, mode: str = "song") -> dict:
+        return await asyncio.to_thread(self.set_loop_mode, mode)
+
+    async def async_set_song_position(self, beats: float = 0.0) -> dict:
+        return await asyncio.to_thread(self.set_song_position, beats)
+
+    async def async_select_pattern(self, index: int, deselect: bool = True) -> dict:
+        return await asyncio.to_thread(self.select_pattern, index, deselect=deselect)
+
+    async def async_get_playlist_state(self, max_tracks: int = 6) -> dict:
+        return await asyncio.to_thread(self.get_playlist_state, max_tracks)
+
+    async def async_setup_playlist_track(
+        self,
+        track: Optional[int] = None,
+        *,
+        name: Optional[str] = None,
+        r: Optional[int] = None,
+        g: Optional[int] = None,
+        b: Optional[int] = None,
+        deselect_all: bool = False,
+        select_all: bool = False,
+        scroll_to: Optional[int] = None,
+        focus: bool = False,
+    ) -> dict:
+        return await asyncio.to_thread(
+            self.setup_playlist_track,
+            track,
+            name=name,
+            r=r,
+            g=g,
+            b=b,
+            deselect_all=deselect_all,
+            select_all=select_all,
+            scroll_to=scroll_to,
+            focus=focus,
+        )

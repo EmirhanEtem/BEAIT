@@ -7,9 +7,10 @@ from pydantic import BaseModel, Field
 
 
 class AppSettings(BaseModel):
-    llm_provider: str = "openai"  # openai, anthropic, local
+    llm_provider: str = "openai"  # openai, gemini, anthropic, local
     openai_model: str = "gpt-4o"
     openai_base_url: str = "https://api.openai.com/v1"
+    gemini_model: str = "gemini-3.5-flash-lite"
     anthropic_model: str = "claude-sonnet-4-20250514"
     local_model_url: str = "http://localhost:11434"
     local_model_name: str = "llama3"

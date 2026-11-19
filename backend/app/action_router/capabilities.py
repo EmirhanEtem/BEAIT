@@ -50,6 +50,10 @@ class CapabilityRegistry:
             ActionType.SET_MIXER_PAN,
             ActionType.SET_MIXER_MUTE,
             ActionType.SET_MIXER_SOLO,
+            ActionType.SET_PLUGIN_PARAM,
+            ActionType.SET_MIXER_ROUTING,
+            ActionType.SET_MIXER_TRACK_META,
+            ActionType.AUTO_MIX_MASTER,
         }
         fl_mcp_reads = {
             ActionType.READ_TEMPO,
@@ -74,6 +78,8 @@ class CapabilityRegistry:
         hcu_supported = {
             ActionType.OPEN_PLUGIN_WINDOW,
             ActionType.LOAD_PLUGIN_PRESET,
+            ActionType.LOAD_MIXER_EFFECT,
+            ActionType.SET_MIXER_ROUTING,
             ActionType.CAPTURE_SCREENSHOT,
             ActionType.EXPORT_AUDIO,
             # Fallback capabilities for when MCP is unavailable:
@@ -169,6 +175,13 @@ class CapabilityRegistry:
                 ActionType.SET_MIXER_VOLUME,
                 ActionType.SET_MIXER_PAN,
                 ActionType.SET_MIXER_MUTE,
+                ActionType.SET_MIXER_SOLO,
+                ActionType.LOAD_PLUGIN_PRESET,
+                ActionType.LOAD_MIXER_EFFECT,
+                ActionType.SET_PLUGIN_PARAM,
+                ActionType.SET_MIXER_ROUTING,
+                ActionType.SET_MIXER_TRACK_META,
+                ActionType.AUTO_MIX_MASTER,
             }
             fl_route.read_only_actions = {
                 ActionType.READ_TEMPO,

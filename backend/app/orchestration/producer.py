@@ -14,7 +14,7 @@ import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..action_router.executor import ActionExecutor
 from ..agents import (
@@ -44,7 +44,7 @@ from ..schemas.actions import (
 
 logger = logging.getLogger(__name__)
 
-MAX_BOUNDED_PLAN_ACTIONS = 32
+MAX_BOUNDED_PLAN_ACTIONS = 64
 
 
 @dataclass
@@ -91,6 +91,8 @@ class ActionPlan:
     prompt_disclosure: Optional[PromptDisclosureEnvelope] = None
     llm_explanation: Optional[str] = None
     remaining_limitations: List[str] = field(default_factory=list)
+    session_id: Optional[str] = None
+    session_history_entry: Optional[Dict[str, Any]] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -142,6 +144,9 @@ class ProducerOrchestrator:
         self.arranger = ArrangerAgent()
         self.critic = CriticAgent()
         self._last_prompt: Optional[str] = None
+        self._recent_history: List[Dict[str, Any]] = []
+        self._session_last_prompts: Dict[str, str] = {}
+        self._session_histories: Dict[str, List[Dict[str, Any]]] = {}
 
     def parse_musical_intent(self, prompt: str) -> UserMusicalIntent:
         """Parse English or Turkish natural-language production requests into UserMusicalIntent."""
@@ -259,24 +264,54 @@ class ProducerOrchestrator:
         dry_run: bool = False,
         project_context: Optional[Dict[str, Any]] = None,
         midi_export_dir: Optional[str] = None,
+        session_id: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        session_recent_history: Optional[List[Dict[str, Any]]] = None,
     ) -> ActionPlan:
         """Parse natural language command and produce a bounded, structured ActionPlan."""
         t_id = task_id or f"task_{uuid.uuid4().hex[:8]}"
         p_id = f"plan_{uuid.uuid4().hex[:8]}"
         clean = prompt.strip().lower()
 
-        # Support "tekrar yap" / "yeniden yap" by reusing the last meaningful prompt
-        if clean in ("tekrar yap", "yeniden yap", "aynısını yap", "tekrarla", "tekrar") and self._last_prompt:
-            prompt = self._last_prompt
+        if session_id:
+            active_history: List[Dict[str, Any]] = (
+                list(session_recent_history)
+                if session_recent_history is not None
+                else list(self._session_histories.get(session_id, []))
+            )
+            last_for_scope = self._session_last_prompts.get(session_id)
+            if not last_for_scope and conversation_history:
+                for turn in reversed(conversation_history):
+                    if isinstance(turn, dict) and str(turn.get("role")).lower() == "user":
+                        cand = str(turn.get("text") or turn.get("content") or "").strip()
+                        if cand and cand.lower() not in ("tekrar yap", "yeniden yap", "aynısını yap", "tekrarla", "tekrar"):
+                            last_for_scope = cand
+                            break
+        else:
+            active_history = (
+                list(session_recent_history)
+                if session_recent_history is not None
+                else list(self._recent_history)
+            )
+            last_for_scope = self._last_prompt
+
+        # Support "tekrar yap" / "yeniden yap" by reusing the last meaningful prompt in THIS session
+        if clean in ("tekrar yap", "yeniden yap", "aynısını yap", "tekrarla", "tekrar") and last_for_scope:
+            prompt = last_for_scope
             clean = prompt.strip().lower()
         else:
-            self._last_prompt = prompt
+            if session_id:
+                self._session_last_prompts[session_id] = prompt
+            else:
+                self._last_prompt = prompt
 
         intent = self.parse_musical_intent(prompt)
         disclosure = self.model_provider.build_context_prompt(
             user_prompt=prompt,
             project_context=project_context,
+            recent_history=active_history if session_id else None,
             user_preferences=asdict(self.memory.preferences),
+            conversation_history=conversation_history,
         )
 
         actions: List[ActionDefinition] = []
@@ -286,6 +321,7 @@ class ProducerOrchestrator:
         sound_design: Optional[SoundDesignPlan] = None
         limitations: List[str] = []
         llm_explanation: Optional[str] = None
+        session_history_entry: Optional[Dict[str, Any]] = None
 
         # Try OpenAI GPT-4o live producer planning when API key is configured in .env
         llm_spec: Optional[Dict[str, Any]] = None
@@ -294,6 +330,8 @@ class ProducerOrchestrator:
                 user_prompt=prompt,
                 project_context=project_context,
                 user_preferences=asdict(self.memory.preferences),
+                recent_history=active_history,
+                conversation_history=conversation_history,
             )
 
         if llm_spec:
@@ -310,6 +348,7 @@ class ProducerOrchestrator:
                 )
             else:
                 eff_genre = str(llm_spec.get("genre") or intent.genre or self.memory.preferences.preferred_genre)
+                eff_mood = str(llm_spec.get("mood") or "dark").strip().lower()
                 eff_bpm = float(llm_spec.get("tempo_bpm") or intent.tempo_bpm or self.memory.preferences.preferred_bpm)
                 eff_key = str(llm_spec.get("key") or intent.key or self.memory.preferences.preferred_root)
                 eff_scale = str(llm_spec.get("scale") or intent.scale or self.memory.preferences.preferred_scale)
@@ -351,16 +390,20 @@ class ProducerOrchestrator:
                         )
                     )
 
-                # 3. Create new active Pattern for this production
-                actions.append(
-                    ActionDefinition(
-                        task_id=t_id,
-                        action_type=ActionType.CREATE_PATTERN,
-                        description=f"[AI] Create pattern '{eff_key}_{eff_scale}_Beat'",
-                        parameters={"name": f"{eff_key}_{eff_scale}_Beat"},
-                        risk_level=ActionRiskLevel.MEDIUM,
+                # 3. Create dedicated Pattern 1 for Drums (when drums are present) + Sound Design
+                raw_drums = llm_spec.get("drum_channels") or []
+                pat_counter = 1
+                if isinstance(raw_drums, list) and raw_drums:
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.CREATE_PATTERN,
+                            description=f"[AI] Create Drums pattern '01 · {eff_key}_{eff_scale}_Drums'",
+                            parameters={"name": f"01 · {eff_key}_{eff_scale}_Drums", "role": "drums"},
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
                     )
-                )
+                    pat_counter = 2
 
                 # 3b. Channel Sound / Volume / Pan shaping (Sound Design)
                 raw_ch_mix = llm_spec.get("channel_mix") or []
@@ -393,56 +436,168 @@ class ProducerOrchestrator:
                                 )
                             )
 
-                # 4. Custom Drum & Percussion Channels
-                raw_drums = llm_spec.get("drum_channels") or []
+                # 4. Expand 1-bar Drums cleanly into cohesive 4-bar groove (64 steps + Bar-4 turnaround fill)
                 if isinstance(raw_drums, list) and raw_drums:
                     for ch_obj in raw_drums:
                         if not isinstance(ch_obj, dict):
                             continue
                         ch_idx = int(ch_obj.get("channel", 0))
                         ch_name = str(ch_obj.get("name", f"Channel {ch_idx}"))
+                        src_len = max(8, min(64, int(ch_obj.get("length", 16) or 16)))
                         raw_steps = ch_obj.get("steps") or []
-                        steps = sorted({int(s) for s in raw_steps if isinstance(s, (int, float)) and 0 <= int(s) < 16})
-                        pattern_str = "".join("x" if i in steps else "." for i in range(16))
+                        base_steps = sorted({int(s) for s in raw_steps if isinstance(s, (int, float)) and 0 <= int(s) < src_len})
+                        if src_len <= 16:
+                            steps_4bar = sorted({bar * 16 + s for bar in range(4) for s in base_steps})
+                            low_ch = ch_name.lower()
+                            if any(w in low_ch for w in ("snare", "perc", "clap")):
+                                # Cohesive Bar-4 turnaround fill leading back into Bar 1
+                                for fill_s in (60, 62):
+                                    if fill_s not in steps_4bar:
+                                        steps_4bar.append(fill_s)
+                                steps_4bar.sort()
+                            target_len = 64
+                            steps = steps_4bar
+                        else:
+                            target_len = src_len
+                            steps = base_steps
+                        pattern_str = "".join("x" if i in steps else "." for i in range(target_len))
                         actions.append(
                             ActionDefinition(
                                 task_id=t_id,
                                 action_type=ActionType.SET_STEP_GRID,
-                                description=f"[AI] Set {ch_name} (Ch {ch_idx}) step grid: {pattern_str}",
+                                description=f"[AI] Set {ch_name} (Ch {ch_idx}) 4-bar groove ({target_len} steps)",
                                 parameters={
                                     "channel": ch_idx,
                                     "steps": steps,
                                     "pattern": pattern_str,
-                                    "length": 16,
+                                    "length": target_len,
                                 },
                                 risk_level=ActionRiskLevel.MEDIUM,
                             )
                         )
 
-                # 5. Load Real Musical Instrument (Live Mouse & GUI) + Apply Melody Notes to Piano Roll
-                inst_name = str(llm_spec.get("instrument_name") or "FL Keys").strip()
-                raw_notes = llm_spec.get("melody_notes") or []
-                valid_notes = []
-                if isinstance(raw_notes, list):
+                from ..music_engine.mix_master import MixMasterEngine
+                mix_engine = MixMasterEngine()
+
+                # Record in session history so consecutive AI turns in THIS chat remember context
+                session_history_entry = {
+                    "prompt": prompt[:140],
+                    "genre": eff_genre,
+                    "tempo_bpm": eff_bpm,
+                    "key": eff_key,
+                    "scale": eff_scale,
+                    "instrument_name": llm_spec.get("instrument_name"),
+                    "chord_progression": list(llm_spec.get("chord_progression") or [])[:6],
+                    "instruments": [
+                        str(t.get("instrument_name"))
+                        for t in (llm_spec.get("tracks") or [])
+                        if isinstance(t, dict) and t.get("instrument_name")
+                    ],
+                }
+                if session_id:
+                    s_hist = self._session_histories.setdefault(session_id, [])
+                    s_hist.append(session_history_entry)
+                    if len(s_hist) > 6:
+                        self._session_histories[session_id] = s_hist[-6:]
+                else:
+                    self._recent_history.append(session_history_entry)
+                    if len(self._recent_history) > 6:
+                        self._recent_history = self._recent_history[-6:]
+
+                # 5. Load Multi-Track Generator Instruments, Write Dedicated Patterns & Route to Mixer Inserts
+                role_tracks: Dict[str, int] = {"master": 0}
+                if raw_drums:
+                    role_tracks["drums"] = mix_engine.get_mixer_track_for_role("drums")
+
+                tracks_spec = list(llm_spec.get("tracks") or [])
+                if not tracks_spec:
+                    inst_name = str(llm_spec.get("instrument_name") or "FL Keys").strip()
+                    raw_notes = llm_spec.get("melody_notes") or []
+                    if raw_notes:
+                        tracks_spec.append({
+                            "role": "lead",
+                            "instrument_name": inst_name,
+                            "fallbacks": ["FLEX", "Sytrus", "3x Osc"],
+                            "notes": raw_notes,
+                        })
+
+                # 5a. Load instrument + create dedicated Pattern per melodic role + write MIDI FIRST
+                # (keeps Piano Roll retargeting from stealing focus before Mixer routing)
+                routable_tracks: List[Tuple[str, str, int]] = []
+                for trk in tracks_spec[:4]:
+                    if not isinstance(trk, dict):
+                        continue
+                    role = str(trk.get("role") or "lead").strip().lower()
+                    t_inst = str(trk.get("instrument_name") or "FLEX").strip()
+                    t_fbs = [str(f) for f in (trk.get("fallbacks") or []) if f]
+                    raw_notes = trk.get("notes") or []
+                    valid_notes = []
                     for n in raw_notes:
                         if isinstance(n, dict) and "pitch" in n:
-                            valid_notes.append({
-                                "pitch": max(24, min(108, int(n.get("pitch", 60)))),
+                            n_dict: Dict[str, Any] = {
+                                "pitch": max(21, min(108, int(n.get("pitch", 60)))),
                                 "time_bars": max(0.0, float(n.get("time_bars", 0.0))),
                                 "length_bars": max(0.0625, float(n.get("length_bars", 0.25))),
                                 "velocity": max(0.1, min(1.0, float(n.get("velocity", 0.85)))),
-                            })
-                if valid_notes:
+                            }
+                            if n.get("porta") is True:
+                                n_dict["porta"] = True
+                            valid_notes.append(n_dict)
+                    if not valid_notes:
+                        continue
+
+                    max_bar_span = max(
+                        4,
+                        min(8, int(max((n["time_bars"] + n["length_bars"]) for n in valid_notes) + 0.99)),
+                    )
+                    mixer_track = mix_engine.get_mixer_track_for_role(role)
+                    role_tracks[role] = mixer_track
+                    routable_tracks.append((role, t_inst, mixer_track))
+                    pat_label = f"{pat_counter:02d} · {role.title()} ({t_inst})"
+                    pat_counter += 1
+
                     actions.append(
                         ActionDefinition(
                             task_id=t_id,
                             action_type=ActionType.LOAD_PLUGIN_PRESET,
-                            description=f"[Canlı Mouse & GUI] Channel Rack'e '{inst_name}' enstrümanını ekle ve seç",
+                            description=f"[Canlı GUI · {role.upper()}] '{t_inst}' eklentisini yükle ve seç",
                             parameters={
-                                "plugin_name": inst_name,
-                                "instrument_name": inst_name,
-                                "preset_name": "Default",
+                                "plugin_name": t_inst,
+                                "instrument_name": t_inst,
+                                "role": role,
+                                "fallbacks": t_fbs,
+                                "preset_hint": trk.get("preset_hint", "Default"),
                             },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_PLUGIN_PARAM,
+                            description=f"[Synth Ayarı · {role.upper()}] '{t_inst}' preset ve synth parametrelerini ayarla",
+                            parameters={
+                                "slot": -1,
+                                "role": role,
+                                "plugin_name": t_inst,
+                                "preset_hint": trk.get("preset_hint") or f"{eff_mood} {eff_genre} {role}",
+                                "generator_params": trk.get("generator_params") or {},
+                                "mix_cfg": {
+                                    **(llm_spec.get("mix") or {}),
+                                    "mood": eff_mood,
+                                    "genre": eff_genre,
+                                },
+                                "fallback_step": ((len(active_history) + pat_counter) % 6) + 1,
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.CREATE_PATTERN,
+                            description=f"[Pattern] '{pat_label}' desenini oluştur ve seç",
+                            parameters={"name": pat_label, "role": role},
                             risk_level=ActionRiskLevel.MEDIUM,
                         )
                     )
@@ -450,34 +605,145 @@ class ProducerOrchestrator:
                         ActionDefinition(
                             task_id=t_id,
                             action_type=ActionType.CREATE_MIDI_PATTERN,
-                            description=f"[AI] Apply {eff_key} {eff_scale} melody ({len(valid_notes)} notes) to '{inst_name}' Piano Roll",
+                            description=f"[AI · {role.upper()}] {eff_key} {eff_scale} ({len(valid_notes)} nota) '{t_inst}' Piano Roll'a yaz",
                             parameters={
                                 "notes": valid_notes,
-                                "instrument_name": inst_name,
-                                "bars": 4,
+                                "instrument_name": t_inst,
+                                "role": role,
+                                "fallbacks": t_fbs,
+                                "bars": max_bar_span,
                                 "mode": "replace",
                             },
                             risk_level=ActionRiskLevel.MEDIUM,
                         )
                     )
 
-                # 5b. Paint Created Patterns onto Main Song Playlist (Ana Şarkı) via Live Mouse Drag
-                actions.append(
-                    ActionDefinition(
-                        task_id=t_id,
-                        action_type=ActionType.ADD_ARRANGEMENT_MARKER,
-                        description="[Canlı Mouse & GUI] Pattern'leri Playlist (Ana Şarkı) kanallarına boya ve diz",
-                        parameters={
-                            "bar": 1,
-                            "name": f"{eff_key}_{eff_scale}_Song",
-                            "paint_playlist": True,
-                            "bars": 8,
-                        },
-                        risk_level=ActionRiskLevel.MEDIUM,
+                # 5b. Route each loaded channel to its dedicated Mixer Insert together
+                for role, t_inst, mixer_track in routable_tracks:
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_MIXER_ROUTING,
+                            description=f"[Mix Routing · {role.upper()}] '{t_inst}' kanalını Mixer Insert {mixer_track}'e yönlendir",
+                            parameters={
+                                "role": role,
+                                "mixer_track": mixer_track,
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
                     )
-                )
 
-                # 6. Mixer Volume adjustment
+                # 5c. Paint Multi-Section Arrangement onto Main Song Playlist
+                raw_sections = llm_spec.get("sections") or [{"name": "Intro", "bars": 4}, {"name": "Drop", "bars": 8}]
+                clean_sections: List[Dict[str, Any]] = []
+                for s in raw_sections:
+                    if not isinstance(s, dict):
+                        continue
+                    sec_item: Dict[str, Any] = {
+                        "name": str(s.get("name", "Section")),
+                        "bars": max(1, int(s.get("bars", 4) or 4)),
+                    }
+                    if s.get("mode"):
+                        sec_item["mode"] = str(s["mode"])
+                    if isinstance(s.get("roles"), list) and s["roles"]:
+                        sec_item["roles"] = [str(r).strip().lower() for r in s["roles"] if str(r).strip()]
+                    clean_sections.append(sec_item)
+                if not clean_sections:
+                    clean_sections = [{"name": f"{eff_key}_{eff_scale}_Song", "bars": 8}]
+                clear_pl = str(llm_spec.get("intent_type") or "full_production").lower() != "edit"
+                cur_bar = 1
+                for s_idx, sec in enumerate(clean_sections[:4]):
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.ADD_ARRANGEMENT_MARKER,
+                            description=(
+                                f"[Playlist] '{sec['name']}' bölüm işaretini ekle ve desenleri Ana Şarkıya diz"
+                                if s_idx == 0
+                                else f"[Playlist] '{sec['name']}' bölüm işaretini Bar {cur_bar}'e ekle"
+                            ),
+                            parameters={
+                                "bar": cur_bar,
+                                "name": sec["name"],
+                                "paint_playlist": (s_idx == 0),
+                                "clear_playlist": (clear_pl if s_idx == 0 else False),
+                                "sections": clean_sections if s_idx == 0 else None,
+                                "bars": sec["bars"],
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+                    cur_bar += sec["bars"]
+
+                # 6. Mixer Naming, Colors, Real FX Plugin Chains & Parameter Tuning
+                fx_plan = llm_spec.get("fx_plan") if isinstance(llm_spec.get("fx_plan"), dict) else {}
+                fx_params = llm_spec.get("fx_params") if isinstance(llm_spec.get("fx_params"), dict) else {}
+                mix_cfg = llm_spec.get("mix") if isinstance(llm_spec.get("mix"), dict) else {"enabled": True}
+
+                ordered_mix_roles = [r for r in role_tracks.keys() if r != "master"] + ["master"]
+                for role in ordered_mix_roles:
+                    m_track = role_tracks[role]
+                    meta = mix_engine.get_track_meta_for_role(role)
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_MIXER_TRACK_META,
+                            description=f"[Mix] Mixer Track {m_track} -> '{meta['name']}' isim & renk ayarla",
+                            parameters={
+                                "track": m_track,
+                                "role": role,
+                                "name": meta["name"],
+                                "color": [meta["r"], meta["g"], meta["b"]],
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+                    fx_fallbacks_map = {
+                        "fruity reeverb 2": ["Fruity Delay 3", "Fruity Convolver"],
+                        "fruity parametric eq 2": ["Fruity 7 Band EQ", "Fruity Parametric EQ"],
+                        "fruity compressor": ["Fruity Limiter", "Maximus"],
+                        "fruity limiter": ["Fruity Soft Clipper", "Maximus"],
+                        "fruity soft clipper": ["Fruity Limiter", "Soundgoodizer"],
+                        "fruity delay 3": ["Fruity Delay 2", "Fruity Reeverb 2"],
+                        "soundgoodizer": ["Maximus", "Fruity Limiter"],
+                        "fruity chorus": ["Fruity Flanger", "Fruity Phaser"],
+                    }
+                    role_fx = list(fx_plan.get(role) or [])
+                    fx_cap = 3 if role == "master" else 2
+                    for fx_name in role_fx[:fx_cap]:
+                        fx_str = str(fx_name)
+                        actions.append(
+                            ActionDefinition(
+                                task_id=t_id,
+                                action_type=ActionType.LOAD_MIXER_EFFECT,
+                                description=f"[FX Plugin · T{m_track} {role.upper()}] '{fx_str}' efektini yükle",
+                                parameters={
+                                    "mixer_track": m_track,
+                                    "role": role,
+                                    "plugin_name": fx_str,
+                                    "fallbacks": fx_fallbacks_map.get(fx_str.strip().lower(), []),
+                                },
+                                risk_level=ActionRiskLevel.MEDIUM,
+                            )
+                        )
+                    if role_fx:
+                        actions.append(
+                            ActionDefinition(
+                                task_id=t_id,
+                                action_type=ActionType.SET_PLUGIN_PARAM,
+                                description=f"[FX Tuning · T{m_track} {role.upper()}] Yüklenen FX plugin parametrelerini ayarla",
+                                parameters={
+                                    "track": m_track,
+                                    "mixer_track": m_track,
+                                    "role": role,
+                                    "fx_params": fx_params.get(role, {}),
+                                    "mix_cfg": mix_cfg,
+                                },
+                                risk_level=ActionRiskLevel.MEDIUM,
+                            )
+                        )
+
+                # Explicit Master volume if specifically requested outside auto-mix
                 mix_vol = llm_spec.get("mixer_volume")
                 if isinstance(mix_vol, (int, float)):
                     vol_val = max(0.05, min(1.0, float(mix_vol)))
@@ -491,15 +757,41 @@ class ProducerOrchestrator:
                         )
                     )
 
-                # 7. Transport Playback
+                # 7. Transport Playback + Live Peak-Metered Auto-Mix & Mastering
                 play_st = llm_spec.get("play_state")
-                if play_st in ("play", "stop"):
+                if play_st == "play":
                     actions.append(
                         ActionDefinition(
                             task_id=t_id,
                             action_type=ActionType.SET_PLAY_STATE,
-                            description=f"[AI] Set FL Studio transport playback to '{play_st}'",
-                            parameters={"state": play_st},
+                            description="[AI] Canlı peak ölçümü ve Song Mode dinleme için oynatmayı başlat",
+                            parameters={"state": "play", "loop_mode": "song", "rewind": True},
+                            risk_level=ActionRiskLevel.LOW,
+                        )
+                    )
+
+                if mix_cfg.get("enabled", True):
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.AUTO_MIX_MASTER,
+                            description="[Mix & Master] Pan, seviye dengeleme ve -1 dBFS Master peak kontrolü uygula",
+                            parameters={
+                                "role_tracks": role_tracks,
+                                "mix_cfg": mix_cfg,
+                                "fx_params": fx_params,
+                            },
+                            risk_level=ActionRiskLevel.MEDIUM,
+                        )
+                    )
+
+                if play_st == "stop":
+                    actions.append(
+                        ActionDefinition(
+                            task_id=t_id,
+                            action_type=ActionType.SET_PLAY_STATE,
+                            description="[AI] Set FL Studio transport playback to 'stop'",
+                            parameters={"state": "stop"},
                             risk_level=ActionRiskLevel.LOW,
                         )
                     )
@@ -839,6 +1131,8 @@ class ProducerOrchestrator:
             prompt_disclosure=disclosure,
             llm_explanation=llm_explanation,
             remaining_limitations=limitations,
+            session_id=session_id,
+            session_history_entry=session_history_entry,
         )
 
     def _emit_event(self, event_type: str, payload: Dict[str, Any]) -> None:

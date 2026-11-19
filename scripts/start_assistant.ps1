@@ -19,6 +19,24 @@ if (-not (Test-Path $VenvPython)) {
     Write-Error "Python sanal ortami bulunamadi: $VenvPython. Lutfen docs/setup-windows.md adimlarini izleyin."
 }
 
+# 0. FL Studio MIDI Controller Script (device_FLStudioMCP.py) senkronizasyonu
+$ControllerSrc = Join-Path $RepoRoot "external\flstudio-mcp\fl_controller\FLStudioMCP\device_FLStudioMCP.py"
+if (Test-Path $ControllerSrc) {
+    $FlShared = (Get-ItemProperty "HKCU:\Software\Image-Line\Shared\Paths" -ErrorAction SilentlyContinue)."Shared data"
+    if (-not $FlShared) {
+        $FlShared = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Image-Line"
+    }
+    $FlHwDir = Join-Path $FlShared "FL Studio\Settings\Hardware\FLStudioMCP"
+    if (Test-Path (Split-Path $FlHwDir -Parent)) {
+        if (-not (Test-Path $FlHwDir)) { New-Item -ItemType Directory -Path $FlHwDir -Force | Out-Null }
+        $ControllerDst = Join-Path $FlHwDir "device_FLStudioMCP.py"
+        if ((-not (Test-Path $ControllerDst)) -or ((Get-FileHash $ControllerSrc).Hash -ne (Get-FileHash $ControllerDst).Hash)) {
+            Copy-Item -Path $ControllerSrc -Destination $ControllerDst -Force
+            Write-Host "[0/4] FL Studio controller scripti guncellendi -> $ControllerDst" -ForegroundColor Cyan
+        }
+    }
+}
+
 # 1. FL Studio MCP TCP Daemon (Port 9787) kontrolu ve otomatik baslatma
 $DaemonListening = $false
 try {
